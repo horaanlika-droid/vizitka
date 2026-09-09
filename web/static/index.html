@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
+<title>Витрина — Богиня Мила</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#0f0f0f;--card:#1e1e1e;--accent:#7c4dff;--text:#fff;--muted:#9aa0a6;--ok:#8aff8a}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:0}
+.container{max-width:720px;margin:0 auto;padding:16px}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px}
+.header h1{font-size:22px;margin:0}
+.sub{opacity:.7;font-size:13px;margin-top:4px}
+.sub a{color:#8ab4ff;text-decoration:none}
+.card{background:var(--card);border-radius:16px;padding:14px;margin:12px 0;display:flex;gap:12px;align-items:center;box-shadow:0 2px 12px rgba(0,0,0,.2)}
+.card img{width:72px;height:72px;object-fit:cover;border-radius:12px;background:#333;flex-shrink:0}
+.price{color:var(--ok);font-weight:700;margin-top:6px}
+.btn{background:var(--accent);color:#fff;border:0;border-radius:12px;padding:10px 16px;font-weight:700;cursor:pointer;white-space:nowrap}
+.btn:disabled{opacity:.5;cursor:wait}
+.badge{font-size:11px;background:#333;padding:3px 8px;border-radius:999px;margin-left:6px}
+.muted{color:var(--muted);font-size:13px}
+#products{min-height:120px}
+.loader{padding:24px;text-align:center;opacity:.7}
+.err{background:#2a1a1a;border:1px solid #5a2a2a;border-radius:12px;padding:12px;margin:12px 0;color:#ffb4b4}
+.okbox{background:#1a2a1a;border:1px solid #2a5a2a;border-radius:12px;padding:12px;margin:12px 0;color:#b4ffb4}
+.footer{max-width:720px;margin:32px auto 0;opacity:.5;font-size:11px;text-align:center;padding:0 16px 24px}
+.footer a{color:#8ab4ff}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div>
+      <h1>🛍 Витрина Богини</h1>
+      <div class="sub"><span id="contact">Загрузка…</span> · <a id="contact_link" href="#" target="_blank">ЛС</a></div>
+    </div>
+    <div id="user" class="muted"></div>
+  </div>
+
+  <div id="status"></div>
+  <div id="products"><div class="loader">Загрузка товаров…</div></div>
+</div>
+
+<div class="footer">
+  <a href="/health">health</a> · <a href="/api/config">config</a> · <a href="/api/products">products JSON</a> · <a href="/admin">admin</a><br>
+  <small>Если видишь 404 на Ботхосте — сделай Redeploy в панели, проверь PORT=8080 и HOST=0.0.0.0. Бот работает отдельно от веба.</small>
+</div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if(tg){ try{ tg.ready(); tg.expand(); }catch(e){} }
+
+let initData = tg?.initData || new URLSearchParams(location.search).get('initData') || '';
+
+function headers(){
+  const h={'Content-Type':'application/json'};
+  if(initData) h['X-Telegram-Init-Data']=initData;
+  return h;
+}
+
+function showErr(msg){
+  const s=document.getElementById('status');
+  s.innerHTML=`<div class="err">⚠️ ${msg}<br><small>Открой <a href="/api/products">/api/products</a> и <a href="/api/config">/api/config</a> для диагностики</small></div>`;
+}
+function showOk(msg){
+  const s=document.getElementById('status');
+  s.innerHTML=`<div class="okbox">✅ ${msg}</div>`;
+  setTimeout(()=>{ s.innerHTML=''; }, 4000);
+}
+
+async function loadConfig(){
+  try{
+    const r=await fetch('/api/config');
+    const j=await r.json();
+    if(j.ok){
+      const uname=j.contact_username||'milayaqueen';
+      document.getElementById('contact').textContent='@'+uname;
+      const link=document.getElementById('contact_link');
+      link.href='https://t.me/'+uname;
+      link.textContent='ЛС Богини';
+      return j;
+    }
+  }catch(e){}
+  document.getElementById('contact').textContent='@milayaqueen';
+  document.getElementById('contact_link').href='https://t.me/milayaqueen';
+  return null;
+}
+
+async function loadProducts(){
+  const cont=document.getElementById('products');
+  try{
+    const r=await fetch('/api/products', {headers: headers()});
+    if(!r.ok){
+      cont.innerHTML=`<div class="err">Ошибка API: ${r.status} ${r.statusText}<br>Проверь логи Ботхоста — БД должна создаться автоматически при старте (init_db).</div>`;
+      return;
+    }
+    const j=await r.json();
+    if(!j.ok){
+      cont.innerHTML=`<div class="err">Ошибка: ${j.error||'unknown'}<br>${j.details||''}</div>`;
+      return;
+    }
+    if(!j.products || !j.products.length){
+      cont.innerHTML=`<div class="muted" style="padding:16px">Товаров пока нет. Добавь их в <a href="/admin">админке</a> или через бота.<br><small>Если ты на Ботхосте и только задеплоил — товары сидятся автоматически (9 штук) при первом запуске init_db.</small></div>`;
+      return;
+    }
+    cont.innerHTML='';
+    j.products.forEach(p=>{
+      const price=(p.price_gram? p.price_gram+' GRAM ' : '')+(p.price_rub? p.price_rub+' ₽':'');
+      const img=p.photo_file_id? `/api/media/${p.photo_file_id}` : (p.photo_url||'');
+      const el=document.createElement('div'); el.className='card';
+      el.innerHTML=`<img src="${img}" onerror="this.style.display='none'"><div style="flex:1;min-width:0"><div><b>#${p.id} ${p.title||'Без названия'}</b><span class="badge">${p.category||'general'}</span></div><div class="muted" style="margin:4px 0;white-space:pre-wrap;word-break:break-word">${(p.description||'').slice(0,300)}</div><div class="price">${price||'цена не указана'}</div></div><button class="btn" onclick="order(${p.id}, this)">Купить</button>`;
+      cont.appendChild(el);
+    });
+  }catch(e){
+    cont.innerHTML=`<div class="err">Ошибка загрузки: ${e}<br>Открой /api/products напрямую. Если 500 — нужен Redeploy на Ботхосте (БД не создалась).</div>`;
+  }
+}
+
+async function order(id, btn){
+  const orig=btn?btn.textContent:'Купить';
+  if(btn){ btn.disabled=true; btn.textContent='...'; }
+  try{
+    const r=await fetch('/api/orders/create', {method:'POST', headers: headers(), body: JSON.stringify({product_id:id})});
+    const j=await r.json();
+    if(!j.ok){
+      if(j.error==='auth_required'){
+        alert('Открой витрину через Telegram: кнопка 🛍 ВИТРИНА в боте. Или включи ALLOW_DEV_AUTH=1 для теста.');
+      }else{
+        alert('Ошибка: '+(j.error||'unknown')+' '+(j.details||''));
+      }
+      return;
+    }
+    let txt=`Заказ #${j.order.id}\nСумма: ${j.order.amount_gram||j.order.amount_rub} ${j.invoice.mode}\nМемо: ${j.order.pay_memo}\n`;
+    if(j.invoice.pay_url) txt+=`Ссылка: ${j.invoice.pay_url}\n`;
+    if(j.invoice.address) txt+=`Адрес: ${j.invoice.address}\nМемо: ${j.invoice.memo}\n`;
+    if(j.invoice.note) txt+=`\n${j.invoice.note}`;
+    alert(txt);
+    if(j.invoice.pay_url) window.open(j.invoice.pay_url, '_blank');
+    showOk(`Заказ #${j.order.id} создан, мемо ${j.order.pay_memo}`);
+  }catch(e){
+    alert('Ошибка: '+e);
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent=orig; }
+  }
+}
+
+(async()=>{
+  await loadConfig();
+  await loadProducts();
+  if(tg?.initDataUnsafe?.user){
+    const u=tg.initDataUnsafe.user;
+    document.getElementById('user').textContent='@'+(u.username||u.first_name||u.id);
+  }
+})();
+</script>
+</body>
+</html>
