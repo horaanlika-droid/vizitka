@@ -198,6 +198,12 @@ async def run_client_bot() -> None:
     bot, dp = build_client_bot()
     legacy = load_legacy()
     sync_task = asyncio.create_task(promo_sync_loop(legacy))
+    # страховка от «Конфликт: terminated by other getUpdates request»,
+    # если раньше был включен webhook — poll и webhook с одним токеном жить вместе не могут
+    try:
+        await bot.delete_webhook(drop_pending_updates=False)
+    except Exception as e:
+        log.warning("client_bot: delete_webhook не удался (не критично): %s", e)
     log.info("client_bot: polling стартовал")
     try:
         await dp.start_polling(bot)
