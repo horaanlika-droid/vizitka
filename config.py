@@ -68,6 +68,32 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _int_any(names: list[str], default: int) -> int:
+    """Взять первый валидный int-порт из списка имен (для хостингов)."""
+    for n in names:
+        raw = (os.getenv(n) or "").strip()
+        if not raw:
+            continue
+        try:
+            v = int(raw)
+            if 1 <= v <= 65535:
+                return v
+        except (ValueError, TypeError):
+            continue
+    return default
+
+
+# Подстроки-заглушки: если PUBLIC_URL похож на это — считаем что не задан.
+PLACEHOLDER_URL_MARKERS = ("tvoy-bot", "example", "change-me", "замени", "your-", "todo", "xxx")
+
+
+def _is_placeholder_url(url: str) -> bool:
+    u = (url or "").lower()
+    if not u:
+        return True
+    return any(m in u for m in PLACEHOLDER_URL_MARKERS)
+
+
 def _float(name: str, default: float) -> float:
     try:
         return float((os.getenv(name) or "").strip().replace(",", ".") or default)
@@ -168,12 +194,19 @@ class Settings:
         # PUBLIC_URL — авто-детект из популярных хостингов
         public_url = _str_any([
             "PUBLIC_URL", "WEBAPP_URL", "APP_URL", "BOTHOST_PUBLIC_URL",
-            "RENDER_EXTERNAL_URL", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL",
-            "HOST_URL", "BASE_URL", "EXTERNAL_URL"
-        ], SITE_PUBLIC_URL).rstrip("/")
+            "BOTHOST_URL", "RENDER_EXTERNAL_URL", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL",
+            "HOST_URL", "BASE_URL", "EXTERNAL_URL", "KOYEB_PUBLIC_DOMAIN",
+        ], "").rstrip("/")
+        # fallback на SITE_* из кода — но заглушку считаем пустой
+        if not public_url:
+            site_url = (SITE_PUBLIC_URL or "").strip().rstrip("/")
+            if site_url and not _is_placeholder_url(site_url):
+                public_url = site_url
         if public_url and not public_url.startswith("http"):
             public_url = "https://" + public_url
         webapp_url = _str("WEBAPP_URL", public_url).rstrip("/") or public_url
+        if _is_placeholder_url(webapp_url):
+            webapp_url = public_url if not _is_placeholder_url(public_url) else ""
 
         # Токены: ADMIN_BOT_TOKEN fallback на BOT_TOKEN
         bot_token = _str("BOT_TOKEN")
@@ -197,8 +230,8 @@ class Settings:
             bot_token=bot_token,
             admin_bot_token=admin_bot_token,
             admin_ids=_int_list("ADMIN_IDS", SITE_ADMIN_IDS),
-            host=_str("HOST", "0.0.0.0"),
-            port=_int("PORT", 8080),
+            host=_str_any(["HOST", "BOTHOST_HOST", "SERVER_HOST", "WEB_HOST"], "0.0.0.0") or "0.0.0.0",
+            port=_int_any(["PORT", "BOTHOST_PORT", "SERVER_PORT", "HTTP_PORT", "APP_PORT", "WEB_PORT"], 8080),
             public_url=public_url,
             webapp_url=webapp_url,
             db_path=str((PROJECT_ROOT / db_path).resolve()) if not os.path.isabs(db_path) else db_path,
@@ -287,8 +320,10 @@ def validate() -> list[str]:
         warns.append("ADMIN_PANEL_TOKEN пуст — веб-админка (/admin) отключена.")
     elif settings.admin_panel_token.startswith("admin_"):
         warns.append(f"ADMIN_PANEL_TOKEN авто: {settings.admin_panel_token} — /admin?admin_token=...")
-    if not settings.public_url and settings.run_web:
-        warns.append("PUBLIC_URL пуст — авто-детект не сработал, WebApp-кнопка может не работать.")
+    if (not settings.public_url or _is_placeholder_url(settings.public_url)) and settings.run_web:
+        warns.append("PUBLIC_URL пуст — вставь адрес из панели БотХоста в ENV PUBLIC_URL, иначе кнопка 🛍 ВИТРИНА не откроется.")
+    if not settings.webapp_url and settings.run_web:
+        warns.append("WEBAPP_URL пуст — кнопка витрины в боте отключена, но веб (/ и /api/*) работает.")
     if settings.allow_dev_auth:
         warns.append("ALLOW_DEV_AUTH=1 — тестовый вход БЕЗ Telegram! Выключи на проде.")
     if settings.tonapi_key and settings.admin_ids:

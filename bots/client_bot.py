@@ -119,8 +119,10 @@ def install_promo_store(legacy: ModuleType) -> None:
 # ---------- WebApp-кнопка в главном меню ----------
 
 def install_webapp_button(legacy: ModuleType) -> None:
-    if not settings.webapp_url:
-        log.warning("client_bot: WEBAPP_URL пуст — кнопка витрины не добавлена")
+    from config import _is_placeholder_url  # локально чтобы не тащить лишнего
+    if not settings.webapp_url or _is_placeholder_url(settings.webapp_url):
+        log.warning("client_bot: WEBAPP_URL пуст/заглушка — кнопка витрины не добавлена. "
+                    "Вставь PUBLIC_URL из панели БотХоста в ENV.")
         return
     orig = legacy.get_main_keyboard
 
@@ -140,7 +142,8 @@ def install_webapp_button(legacy: ModuleType) -> None:
 
 @extra.message(Command("app"))
 async def cmd_app(message: Message) -> None:
-    if not settings.webapp_url:
+    from config import _is_placeholder_url
+    if not settings.webapp_url or _is_placeholder_url(settings.webapp_url):
         await message.answer("🛍 Витрина пока не настроена. Напиши в ЛС @"
                              + settings.contact_username)
         return
