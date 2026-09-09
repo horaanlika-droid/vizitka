@@ -87,7 +87,11 @@ async def handle_root(request: web.Request) -> web.Response:
     # Отдаем Mini App HTML — если есть web/static/index.html, иначе встроенный
     static_index = PROJECT_ROOT / "web" / "static" / "index.html"
     if static_index.exists():
-        return web.FileResponse(static_index, headers=dict(CORS_HEADERS))
+        headers = dict(CORS_HEADERS)
+        # The Mini App is the bridge between the bot-managed database and the
+        # browser. Do not keep an old HTML shell after a deployment.
+        headers["Cache-Control"] = "no-cache, must-revalidate"
+        return web.FileResponse(static_index, headers=headers)
 
     # Встроенный минимальный фронт (улучшен: не падает если /api/products 500)
     html = f"""<!DOCTYPE html>
@@ -227,7 +231,10 @@ async def handle_products(request: web.Request) -> web.Response:
                 except Exception:
                     pass
             out.append(pp)
-        return web.json_response({"ok": True, "products": out})
+        return web.json_response(
+            {"ok": True, "products": out},
+            headers={"Cache-Control": "no-store"},
+        )
     except Exception as e:
         log.exception("handle_products failed: %s", e)
         # Попытка авто-восстановления схемы (для сервера где БД могла не создаться)
@@ -235,10 +242,17 @@ async def handle_products(request: web.Request) -> web.Response:
             await db.ensure_schema()
             await db.init_db()
             products = await db.list_products(active_only=True)
-            return web.json_response({"ok": True, "products": [dict(r) for r in products], "recovered": True})
+            return web.json_response(
+                {"ok": True, "products": [dict(r) for r in products], "recovered": True},
+                headers={"Cache-Control": "no-store"},
+            )
         except Exception as e2:
             log.warning("products recovery failed: %s", e2)
-            return web.json_response({"ok": False, "error": "db_error", "details": str(e)[:200], "products": []}, status=200)
+            return web.json_response(
+                {"ok": False, "error": "db_error", "details": str(e)[:200], "products": []},
+                status=200,
+                headers={"Cache-Control": "no-store"},
+            )
 
 
 async def handle_product_one(request: web.Request) -> web.Response:
@@ -270,11 +284,20 @@ async def handle_hot_offer(request: web.Request) -> web.Response:
     try:
         offer = await db.get_hot_offer()
         if offer["is_active"] and offer["text"]:
-            return web.json_response({"ok": True, "offer": offer})
-        return web.json_response({"ok": True, "offer": None})
+            return web.json_response(
+                {"ok": True, "offer": offer},
+                headers={"Cache-Control": "no-store"},
+            )
+        return web.json_response(
+            {"ok": True, "offer": None},
+            headers={"Cache-Control": "no-store"},
+        )
     except Exception as e:
         log.warning("hot_offer failed: %s", e)
-        return web.json_response({"ok": True, "offer": None})
+        return web.json_response(
+            {"ok": True, "offer": None},
+            headers={"Cache-Control": "no-store"},
+        )
 
 
 async def handle_media(request: web.Request) -> web.Response:
