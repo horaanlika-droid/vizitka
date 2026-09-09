@@ -212,7 +212,10 @@ class Settings:
 
     # ---- режимы запуска ----
     run_web: bool = True
-    run_client_bot: bool = True
+    # Клиентский бот выключен по умолчанию: витрина работает через веб,
+    # а админ-бот может использовать BOT_TOKEN как fallback. Если запускать
+    # два polling-бота с одним токеном, Telegram отвечает Conflict.
+    run_client_bot: bool = False
     run_admin_bot: bool = True
 
     # ---- прочее ----
@@ -305,7 +308,7 @@ class Settings:
             tonapi_check_interval=_int("TONAPI_CHECK_INTERVAL", 30),
             admin_panel_token=admin_panel_token,
             run_web=_bool("RUN_WEB", True),
-            run_client_bot=_bool("RUN_CLIENT_BOT", True),
+            run_client_bot=_bool("RUN_CLIENT_BOT", False),
             run_admin_bot=_bool("RUN_ADMIN_BOT", True),
             allow_dev_auth=_bool("ALLOW_DEV_AUTH", False),
             promo_sync_interval=_int("PROMO_SYNC_INTERVAL", 30),
@@ -354,7 +357,18 @@ def validate() -> list[str]:
     if settings.run_client_bot and not settings.bot_token:
         warns.append("BOT_TOKEN пуст — клиентский бот не запустится (веб продолжит работать).")
     if settings.run_admin_bot and not settings.admin_bot_token:
-        warns.append("ADMIN_BOT_TOKEN пуст — админ-бот не запустится (fallback на BOT_TOKEN).")
+        warns.append("ADMIN_BOT_TOKEN/BOT_TOKEN пуст — админ-бот не запустится.")
+    if (
+        settings.run_client_bot
+        and settings.run_admin_bot
+        and settings.bot_token
+        and settings.admin_bot_token
+        and settings.bot_token == settings.admin_bot_token
+    ):
+        warns.append(
+            "BOT_TOKEN и ADMIN_BOT_TOKEN одинаковые — клиентский бот будет пропущен, "
+            "иначе Telegram даст Conflict/getUpdates."
+        )
     if not settings.admin_ids:
         warns.append("ADMIN_IDS пуст — админ-функции недоступны.")
     if settings.payments_mode == "manual":
