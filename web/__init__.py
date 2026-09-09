@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import logging
 import os
@@ -30,7 +31,7 @@ from typing import Any
 import aiohttp
 from aiohttp import web
 
-from config import settings, PROJECT_ROOT
+from config import settings, PROJECT_ROOT, FatalStartupError
 import database as db
 from .auth import current_user, require_user, require_admin, WebUser
 import payments
@@ -767,6 +768,40 @@ def create_app() -> web.Application:
     return app
 
 
+def _is_addr_in_use(e: BaseException) -> bool:
+    """True, если OSError — это «адрес уже занят» (Errno 98 EADDRINUSE)."""
+    if getattr(e, "errno", None) == errno.EADDRINUSE:
+        return True
+    return "address already in use" in str(e).lower()
+
+
+async def _another_vizitka_listening(host: str, port: int) -> bool:
+    """True, если на host:port уже отвечает ЖИВАЯ копия этого же приложения.
+
+    Проверяем /health: наша копия отвечает {"ok": true, "service": "vizitka"}.
+    Позволяет отличить дубль собственного процесса от чужого/зомби-процесса,
+    который просто держит сокет.
+    """
+    candidates = []
+    for h in (host, "127.0.0.1"):
+        if h and h not in ("0.0.0.0", "::") and h not in candidates:
+            candidates.append(h)
+    timeout = aiohttp.ClientTimeout(total=4)
+    for h in candidates or ["127.0.0.1"]:
+        url = f"http://{h}:{port}/health"
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as s:
+                async with s.get(url) as r:
+                    if r.status != 200:
+                        continue
+                    body = (await r.text()).lower()
+                    if "vizitka" in body:
+                        return True
+        except Exception:
+            continue
+    return False
+
+
 async def run_web_app():
     if not settings.run_web:
         log.info("web: RUN_WEB=0 — пропуск")
@@ -780,12 +815,32 @@ async def run_web_app():
         site = web.TCPSite(runner, host=settings.host, port=settings.port)
         await site.start()
     except OSError as e:
-        log.error("web: НЕ МОГУ слушать %s:%s — %s. "
-                  "Проверь PORT в панели хостинга (должен совпадать).", settings.host, settings.port, e)
         try:
             await runner.cleanup()
         except Exception:
             pass
+        if _is_addr_in_use(e):
+            if await _another_vizitka_listening(settings.host, settings.port):
+                # Порт занят другой копией ЭТОГО ЖЕ приложения.
+                # Глушим весь процесс-дубль: иначе он вечно перезапускается,
+                # спамит логи и — главное — его боты конфликтуют с ботами
+                # работающей копии за getUpdates (TelegramConflictError),
+                # ломая и веб, и бота.
+                raise FatalStartupError(
+                    f"порт {settings.host}:{settings.port} уже слушает ДРУГАЯ КОПИЯ vizitka "
+                    f"(health отвечает). Этот процесс — дубль, останавливаю его. "
+                    f"Если веб не открывается — в панели хостинга сделай полный Restart/Redeploy "
+                    f"и убедись, что приложение запущено ОДИН раз (один сервис, одна start-команда python main.py)."
+                ) from e
+            log.error(
+                "web: НЕ МОГУ слушать %s:%s — %s. Порт занят, но vizitka там не отвечает — "
+                "похоже, старый (зомби-)процесс или чужое приложение. "
+                "Сделай полный Restart проекта в панели хостинга, проверь PORT.",
+                settings.host, settings.port, e,
+            )
+        else:
+            log.error("web: НЕ МОГУ слушать %s:%s — %s. "
+                      "Проверь PORT в панели хостинга (должен совпадать).", settings.host, settings.port, e)
         raise
     log.info("web: слушает %s:%s public=%s", settings.host, settings.port, settings.public_url or "—")
     log.info("web: витрина / | health /health | api /api/products | admin /admin?admin_token=...")

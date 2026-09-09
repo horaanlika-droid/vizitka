@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 
 # логирование до импорта остального
@@ -73,7 +74,7 @@ def _ensure_dependencies() -> None:
 
 _ensure_dependencies()
 
-from config import settings, log_startup_summary, validate  # noqa: E402
+from config import settings, log_startup_summary, validate, FatalStartupError  # noqa: E402
 import database as db  # noqa: E402
 
 
@@ -88,6 +89,20 @@ async def _run_with_restart(coro_func, name: str):
         except asyncio.CancelledError:
             log.info("main: %s отменён", name)
             break
+        except FatalStartupError as e:
+            # Например: наш порт уже слушает другая копия vizitka.
+            # Внутренний рестарт бессмысленен (порт снова занят), а боты этого
+            # процесса-дубля конфликтуют с работающей копией за getUpdates
+            # (TelegramConflictError). Глушим весь процесс, чтобы осталась
+            # одна живая копия — она и веб, и бота обслуживает.
+            log.error(
+                "main: %s: %s — останавливаю ВЕСЬ процесс (это дубль), "
+                "чтобы не мешать работающей копии.",
+                name, e,
+            )
+            # даём логам вытолкнуться в stdout хостинга и выходим
+            await asyncio.sleep(0.2)
+            os._exit(0)
         except Exception as e:
             log.exception("main: %s упал: %s — рестарт через 5 сек", name, e)
             await asyncio.sleep(5)

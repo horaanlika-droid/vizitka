@@ -912,6 +912,12 @@ async def run_admin_bot() -> None:
         log.warning("admin_bot: ADMIN_BOT_TOKEN пуст — пропуск")
         return
     bot, dp = build_admin_bot()
+    # страховка от «Конфликт: terminated by other getUpdates request»,
+    # если раньше был включен webhook — poll и webhook с одним токеном жить вместе не могут
+    try:
+        await bot.delete_webhook(drop_pending_updates=False)
+    except Exception as e:
+        log.warning("admin_bot: delete_webhook не удался (не критично): %s", e)
     log.info("admin_bot: polling стартовал")
     try:
         await dp.start_polling(bot)
