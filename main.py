@@ -25,10 +25,56 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 
-from config import settings, log_startup_summary, validate
-import database as db
-
 log = logging.getLogger("vizitka.main")
+
+
+def _ensure_dependencies() -> None:
+    """Страховка для хостингов (БотХост и т.п.).
+
+    Если build-команда (pip install -r requirements.txt) не выполнилась,
+    ставим недостающие пакеты сами — до первых импортов, иначе процесс
+    падает с ModuleNotFoundError (например: No module named 'aiosqlite').
+    """
+    import importlib.util
+    import subprocess
+    from pathlib import Path
+
+    required = {
+        "aiosqlite": "aiosqlite",
+        "aiogram": "aiogram",
+        "aiohttp": "aiohttp",
+        "dotenv": "python-dotenv",
+    }
+    missing = [pip_name for mod, pip_name in required.items() if importlib.util.find_spec(mod) is None]
+    if not missing:
+        return
+
+    log.warning("startup: не установлены пакеты: %s — ставлю через pip", ", ".join(missing))
+    req_file = Path(__file__).with_name("requirements.txt")
+    base_cmd = [sys.executable, "-m", "pip", "install", "--no-input", "--disable-pip-version-check"]
+    # сначала пробуем по requirements.txt (пинненные версии), иначе — только недостающее
+    attempts = [
+        base_cmd + ["-r", str(req_file)] if req_file.exists() else None,
+        base_cmd + missing,
+        base_cmd + ["--user"] + missing,
+    ]
+    for cmd in attempts:
+        if cmd is None:
+            continue
+        try:
+            subprocess.run(cmd, check=True, timeout=600)
+            log.info("startup: зависимости установлены: %s", ", ".join(missing))
+            return
+        except Exception as e:
+            log.warning("startup: попытка pip install не удалась: %s", e)
+    log.error("startup: не удалось установить зависимости — проверь build-команду на хостинге")
+    raise SystemExit(1)
+
+
+_ensure_dependencies()
+
+from config import settings, log_startup_summary, validate  # noqa: E402
+import database as db  # noqa: E402
 
 
 async def _run_with_restart(coro_func, name: str):

@@ -99,4 +99,21 @@ payments: mode=tonapi gram_api=— tonapi=OK wallet=EQ...…
 - Мемо должно точно совпадать: `ORDER-123` (без пробелов)
 - Логи БотХоста покажут `tonapi poll: проверяю X pending заказов`
 
+## Если в логах `ModuleNotFoundError: No module named 'aiosqlite'` (или aiogram/aiohttp)
+
+Это значит, что **build-команда не выполнилась** — БотХост не поставил пакеты из requirements.txt.
+
+1. В панели БотХоста проверь **Build command**: должно быть `pip install -r requirements.txt`
+2. Нажми **Redeploy / Пересобрать** (не просто Restart — rebuild)
+
+Страховка: `main.py` теперь сам ставит недостающие пакеты при старте (до первого импорта).
+В логах это видно так:
+
+```
+startup: не установлены пакеты: aiosqlite, ... — ставлю через pip
+startup: зависимости установлены: aiosqlite, ...
+```
+
+Первый старт после этого занимает на 10–30 сек дольше (идёт pip install), это нормально.
+
 Готово — копируй из `.env.example` и вставляй в БотХост.
