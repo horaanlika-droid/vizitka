@@ -1,0 +1,1552 @@
+from aiogram import Router, F
+from aiogram.filters import Command
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
+from config import ADMIN_IDS
+from database import *
+from scenes import scenes
+import asyncio
+import aiosqlite
+import time
+import random
+
+router = Router()
+bot = None
+
+ADMIN_ID = 1896036065
+CHANNELS = ["chat_goddes"]
+
+broadcast_data = {}
+dressage_timer = {}
+
+PAYMENT_LINK = "https://yoomoney.ru/to/4100119149767529"
+CONTACT = "@milayaqueen"
+
+# ========== ДРЕССИРОВКА ==========
+DRESSAGE_CODES = {
+    1: "DR_1_START",
+    2: "DR_2_F4R2L",
+    3: "DR_3_B8H1S",
+    4: "DR_4_A9G7D",
+    5: "DR_5_C3M5E",
+}
+
+DRESSAGE_POINTS = {1: 10, 2: 20, 3: 30, 4: 40, 5: 50}
+
+DRESSAGE_TASKS = {
+    1: "🔐 ИСПЫТАНИЕ 1/5\n\n"
+       "📝 Задание: На листе А4 написать от руки «БОГИНЯ МИЛА». "
+       "Встать на колени, положить лист на пол и лизать его языком, "
+       "пока он не начнёт размокать и рваться.\n\n"
+       "📸 Прислать фото — видно язык, лист, колени, слюни.\n"
+       "⏱ У тебя 60 минут.\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+    
+    2: "🔐 ИСПЫТАНИЕ 2/5\n\n"
+       "📝 Задание: Написать на животе «Я – ВЕЩЬ БОГИНИ МИЛЫ». "
+       "Встать на колени. Сфотографироваться — видно надпись, колени, пол.\n\n"
+       "📸 Лицо не показывать.\n"
+       "⏱ У тебя 60 минут.\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+    
+    3: "🔐 ИСПЫТАНИЕ 3/5\n\n"
+       "📝 Задание: Короткое видео (5-7 секунд), как ты лижешь подошву своей обуви.\n\n"
+       "🎥 На видео: язык, подошва, колени.\n"
+       "⏱ У тебя 60 минут.\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+    
+    4: "🔐 ИСПЫТАНИЕ 4/5\n\n"
+       "📝 Задание: Записать голосовое (20-25 секунд) со скулежом и словами:\n"
+       "💬 «Богиня Мила, я — Твой пёс. Спасибо, что позволяешь мне быть Твоей вещью».\n\n"
+       "🎤 Обязательно всхлипывание в конце.\n"
+       "⏱ У тебя 60 минут.\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+    
+    5: "🔐 ИСПЫТАНИЕ 5/5 — ФИНАЛ\n\n"
+       "📝 Задание 1: Видео 15-20 секунд на коленях с текстом:\n"
+       "💬 «Богиня Мила. Я выполнил все приказы. Я — Твой пёс навсегда».\n"
+       "🎥 После слов — поклон до пола на 5 секунд.\n\n"
+       "📝 Задание 2: Написать от руки эссе 50+ слов «Почему Богиня Мила — лучшая».\n"
+       "📸 Сфотографировать эссе (рука, лист).\n\n"
+       "⏱ У тебя 60 минут.\n"
+       "📌 Всё отправь в ЛС @milayaqueen",
+}
+
+# ========== СИССИ ==========
+SISSY_CODES = {
+    1: "SISSY_1_START",
+    2: "SISSY_2_P4R9M",
+    3: "SISSY_3_H7J2L",
+    4: "SISSY_4_B5R1S",
+    5: "SISSY_5_K3L8D",
+    6: "SISSY_6_F9G7E",
+}
+
+SISSY_LESSONS = {
+    1: "🎀 УРОК 1/6: ОСОЗНАНИЕ\n\n"
+       "Ты хочешь быть не просто псом, а девочкой. Сисси.\n\n"
+       "Это значит: отказаться от маскулинности, принять женственность, научиться радовать Богиню.\n\n"
+       "Запомни: сисси не спорит, сисси благодарит, сисси радует.\n\n"
+       "📌 Задание: Напиши «Я принимаю свою роль сисси»\n\n"
+       "🎁 Награда за урок: +10 баллов, звание «Ученица Сисси»\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+    
+    2: "🎀 УРОК 2/6: ВНЕШНИЙ ВИД\n\n"
+       "Сисси должна выглядеть как девочка.\n\n"
+       "Макияж: тушь, блеск для губ, румяна.\n"
+       "Бельё: кружево, атлас, розовый цвет.\n"
+       "Уход: гладкая кожа без волос.\n\n"
+       "📸 Задание: Пришли фото с макияжем (можно без лица)\n\n"
+       "🎁 Награда за урок: +10 баллов, навык «Макияж»\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+    
+    3: "🎀 УРОК 3/6: ПОХОДКА И ПОЗЫ\n\n"
+       "Сисси двигается плавно, мягко, от бедра.\n\n"
+       "Правильная поза: колени вместе, руки за спину, голову опустить. Взгляд в пол. Покорность.\n\n"
+       "📸 Задание: Пришли фото в правильной позе (на коленях)\n\n"
+       "🎁 Награда за урок: +10 баллов, навык «Правильная поза»\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+    
+    4: "🎀 УРОК 4/6: ГОЛОС И СЛОВА\n\n"
+       "Сисси говорит тихо, ласково, с уважением.\n\n"
+       "Фразы, которые нужно запомнить:\n"
+       "• «Спасибо, Богиня Мила»\n"
+       "• «Простите, я была непослушной»\n"
+       "• «Позвольте мне лизать Ваши ножки»\n\n"
+       "🎤 Задание: Запиши голосовое с одной из этих фраз\n\n"
+       "🎁 Награда за урок: +10 баллов, навык «Вежливая сисси»\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+    
+    5: "🎀 УРОК 5/6: СТИЛЬ И КАБЛУКИ\n\n"
+       "Сисси носит женственную одежду. Юбки, блузки, каблуки.\n\n"
+       "Ходьба на каблуках — важный навык.\n\n"
+       "📸 Задание: Пришли фото на каблуках\n\n"
+       "🎁 Награда за урок: +10 баллов, навык «Каблуки»\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+    
+    6: "🎀 УРОК 6/6: ФИНАЛЬНЫЙ ЭКЗАМЕН\n\n"
+       "Богиня Мила задаст три вопроса. Ответь правильно.\n\n"
+       "❓ Вопрос 1: Как правильно стоять сисси?\n"
+       "❓ Вопрос 2: Что сказать, если ты ошиблась?\n"
+       "❓ Вопрос 3: Какого цвета твои трусики?\n\n"
+       "📝 Задание: Напиши ответы\n\n"
+       "🎁 Награда за прохождение: +50 баллов, звание «Идеальная сисси», доступ в закрытый чатик\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+}
+
+# ========== ТЁМНАЯ КОМНАТА ==========
+ADULT_CODES = {
+    1: "DARK_1_START",
+    2: "DARK_2_H7K9M",
+    3: "DARK_3_F4R2L",
+    4: "DARK_4_B8H1S",
+    5: "DARK_5_A9G7D",
+    6: "DARK_6_C3M5E",
+}
+
+ADULT_TASKS = {
+    1: "🔞 ИСПЫТАНИЕ 1/6: ЧМОР ОТРОСТКА\n\n"
+       "Сядь на колени. Достань свой член. Сделай фото.\n\n"
+       "Мне всё равно — стоячий или нет. Я хочу видеть, что ты вообще собой представляешь.\n\n"
+       "📸 Фото в ЛС @milka_femdomqueen\n\n"
+       "🎁 *Для тех, кто пройдёт ВСЕ 6 испытаний — сессия с Богиней Милой в подарок!*\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen",
+    
+    2: "🔞 ИСПЫТАНИЕ 2/6: ХОЛОДНЫЙ ДУШ\n\n"
+       "Встань под холодную воду. 30 секунд.\n"
+       "🎤 Запиши голосовое — слышно воду и твои стоны, скулёж.\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen\n\n"
+       "🎁 *Для тех, кто пройдёт ВСЕ 6 испытаний — сессия с Богиней Милой в подарок!*",
+    
+    3: "🔞 ИСПЫТАНИЕ 3/6: ВОСК НА ГОЛОВКУ\n\n"
+       "Капни горячим воском (не кипятком!) на головку члена.\n"
+       "🎥 Запиши видео процесса.\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen\n\n"
+       "🎁 *Для тех, кто пройдёт ВСЕ 6 испытаний — сессия с Богиней Милой в подарок!*",
+    
+    4: "🔞 ИСПЫТАНИЕ 4/6: БОЛБАСТИНГ\n\n"
+       "Встань на колени. 10 ударов по яйцам.\n"
+       "🎥 Запиши видео — каждый удар должен быть слышен.\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen\n\n"
+       "🎁 *Для тех, кто пройдёт ВСЕ 6 испытаний — сессия с Богиней Милой в подарок!*",
+    
+    5: "🔞 ИСПЫТАНИЕ 5/6: ТУАЛЕТНАЯ ТЕМА\n\n"
+       "Встань на колени перед чистым унитазом.\n"
+       "👅 Положи язык на край унитаза.\n"
+       "📸 Сделай фото.\n\n"
+       "📌 После выполнения отправь результат в ЛС @milayaqueen\n\n"
+       "🎁 *Для тех, кто пройдёт ВСЕ 6 испытаний — сессия с Богиней Милой в подарок!*",
+    
+    6: "🔞 ИСПЫТАНИЕ 6/6: СОЛЬ НА КОЛЕНЯХ (ФИНАЛ)\n\n"
+       "Насыпь на пол КРУПНУЮ МОРСКУЮ СОЛЬ.\n"
+       "Встань на колени на 5 минут. Сними видео (минимум 30 секунд).\n"
+       "После 5 минут — поклонись и скажи: «Спасибо, Богиня Мила».\n\n"
+       "📌 Всё отправь в ЛС @milayaqueen\n\n"
+       "🏆 *ПОЗДРАВЛЯЮ! Ты прошёл все 6 испытаний!*\n"
+       "🎁 *Твой подарок — сессия с Богиней Милой! Напиши в ЛС @milayaqueen для согласования времени.*",
+}
+
+# ========== КУБИКИ ==========
+DICE_PAYMENT_LINK = "https://yoomoney.ru/to/4100119149767529"
+
+DICE_PRICES = {
+    1: 222,
+    3: 444,
+    5: 555
+}
+
+DICE_PRIZES = {
+    1: "🎲 ВЫПАЛО 1: НИЧЕГО\n\n"
+       "Пусто. Но ты можешь попросить перекинуть кубик, если умеешь нормально просить (в ЛС @milayaqueen). Решение за Богиней.",
+    2: "🎲 ВЫПАЛО 2: ИНДИВИДУАЛЬНОЕ ЗАДАНИЕ\n\n"
+       "Богиня Мила придумает задание лично для тебя. С учётом твоих фетишей и табу. Напиши ей в ЛС.",
+    3: "🎲 ВЫПАЛО 3: 3 ДНЯ ЧМОРА\n\n"
+       "Каждый день ты получаешь голосовое сообщение с унижением от Богини Милы. Лично. С твоим именем.",
+    4: "🎲 ВЫПАЛО 4: ОЧИСТИ РТОМ ВЕЩЬ\n\n"
+       "Кружка, пульт, телефон (в чехле). Богиня Мила вышлет фото вещи, ты должен высунуть язык на фото в процессе. Можно без лица.",
+    5: "🎲 ВЫПАЛО 5: ЭКСКЛЮЗИВНЫЙ ПАК ФОТО\n\n"
+       "Фото, которые продаются ТОЛЬКО в кубике. Больше нигде их нет. Твой личный доступ.",
+    6: "🎲 ВЫПАЛО 6: ПРОБНАЯ СЕССИЯ\n\n"
+       "Богиня Мила устраивает тебе бесплатную пробную сессию (онлайн, 15-20 минут). В удобное для неё время. Свяжись в ЛС для согласования.",
+}
+
+# ========== ПРОМОКОДЫ ==========
+active_promocodes = {}
+
+PROMOCODE_INFO = (
+    "🎁 ЧТО ТАКОЕ ПРОМОКОДЫ?\n\n"
+    "🔥 Промокоды выдаются за:\n"
+    "• Активность в чатиках\n"
+    "• Помощь другим псам\n"
+    "• Приведение друзей\n"
+    "• Регулярные донаты Богине\n"
+    "• Продвижение бота\n"
+    "• Отзывы и рекомендации\n\n"
+    "📌 Как получить промокод?\n"
+    "Напиши в ЛС @milayaqueen и расскажи о своих достижениях!\n\n"
+    "🔑 Если у тебя уже есть промокод — введи его ниже!"
+)
+
+# ========== ФУНКЦИИ ==========
+def set_bot(bot_instance):
+    global bot
+    bot = bot_instance
+
+def get_main_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="▶️ ИГРАТЬ")],
+            [KeyboardButton(text="🎀 СТАТЬ СИССИ")],
+            [KeyboardButton(text="🔐 ДРЕССИРОВКА"), KeyboardButton(text="🔞 ПРИВАТКА")],
+            [KeyboardButton(text="🔞 ТЁМНАЯ КОМНАТА"), KeyboardButton(text="👠 СЕССИЯ")],
+            [KeyboardButton(text="🎲 КУБИКИ"), KeyboardButton(text="🎁 ПРОМОКОДЫ")],
+            [KeyboardButton(text="🦴 МОЙ ПРОФИЛЬ"), KeyboardButton(text="❓ ПОМОЩЬ")]
+        ],
+        resize_keyboard=True
+    )
+
+def get_rank(points: int) -> str:
+    if points < 10:
+        return "🐾 Щенок"
+    elif points < 50:
+        return "🐕 Псина"
+    elif points < 200:
+        return "🐶 Послушный пёсик"
+    else:
+        return "👑 Любимчик Богини"
+
+# ========== СТАРТ ==========
+@router.message(Command("start"))
+async def cmd_start(message: Message):
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+    
+    existing = await get_player(user_id)
+    if not existing:
+        await create_player(user_id, username)
+        
+        args = message.text.split()
+        if len(args) > 1 and args[1].startswith("invite_"):
+            try:
+                referrer_id = int(args[1].replace("invite_", ""))
+                if referrer_id != user_id:
+                    await update_dressage_level(user_id, 1)
+                    await message.answer(
+                        "👑 вау а песик то оказывается послушный и активный\n"
+                        "держи код для первого задания в дрессировке: DR_1_START\n"
+                        "начни с него, а потом возвращайся за новыми 👠"
+                    )
+                    await bot.send_message(
+                        referrer_id,
+                        f"🎉 твой друг @{username} зарегался по твоей ссылке\n\n"
+                        f"👑 песик заслужил приз\n"
+                        f"📌 напиши в лс @milayaqueen и скажи «я привёл @{username}»"
+                    )
+                    referrer_username = await get_username(referrer_id)
+                    await bot.send_message(
+                        ADMIN_ID,
+                        f"📢 новый игрок @{username} зарегался по ссылке от @{referrer_username}"
+                    )
+            except:
+                pass
+    
+    await message.answer(
+        f"🐕 добро пожаловать, {username}!\n\n"
+        f"👑 связь с богиней милой: @milayaqueen\n\n"
+        f"💳 для оплаты услуг пиши в лс, богиня скажет реквизиты.",
+        reply_markup=get_main_keyboard()
+    )
+
+# ========== ПРОФИЛЬ ==========
+@router.message(F.text == "🦴 МОЙ ПРОФИЛЬ")
+async def profile_button(message: Message):
+    user_id = message.from_user.id
+    username = message.from_user.username or message.from_user.first_name
+    nickname = await get_nickname(user_id)
+    
+    points = await get_points(user_id)
+    rank = get_rank(points)
+    rolls_left = await get_rolls_left(user_id)
+    used_rolls = await get_used_rolls(user_id)
+    dressage = await get_dressage_level(user_id)
+    sissy = await get_sissy_level(user_id)
+    adult = await get_adult_level(user_id)
+    invites = await get_invites_count(user_id)
+    achievements = await get_achievements(user_id)
+    
+    if achievements:
+        ach_list = achievements.split(',')
+        ach_text = "\n".join([f"• {a}" for a in ach_list[:5]])
+        if len(ach_list) > 5:
+            ach_text += f"\n• ...и ещё {len(ach_list) - 5}"
+    else:
+        ach_text = "пока нет"
+    
+    display_name = nickname if nickname else username
+    
+    text = (
+        f"🦴 ПРОФИЛЬ ПСА\n\n"
+        f"🐕 {display_name}\n"
+        f"🏆 {rank}\n"
+        f"⭐ Баллы: {points}\n\n"
+        f"🎲 Бросков: {rolls_left} осталось, {used_rolls} использовано\n"
+        f"🔐 Дрессировка: уровень {dressage}/5\n"
+        f"🎀 Сисси: уровень {sissy}/6\n"
+        f"🔞 Тёмная комната: уровень {adult}/6\n"
+        f"👥 Приглашено: {invites} друзей\n\n"
+        f"🏅 Достижения:\n{ach_text}"
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏷️ КУПИТЬ КЛИЧКУ (111 ₽)", callback_data="buy_nickname")]
+    ])
+    
+    await message.answer(text, reply_markup=keyboard)
+
+@router.callback_query(F.data == "buy_nickname")
+async def buy_nickname(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    nickname = await get_nickname(user_id)
+    
+    if nickname:
+        await callback.message.answer(
+            f"🏷️ у тебя уже есть кличка: {nickname}\n"
+            "хочешь сменить — напиши в лс @milayaqueen"
+        )
+        await callback.answer()
+        return
+    
+    await callback.message.answer(
+        "🏷️ КУПИТЬ КЛИЧКУ\n\n"
+        "ты оплачиваешь, а я придумываю тебе имя\n"
+        "спорить и выбирать нельзя — это привилегия богини\n\n"
+        f"💰 цена: 111 ₽\n"
+        f"💳 оплата: {PAYMENT_LINK}\n\n"
+        "📌 после оплаты напиши в лс @milayaqueen:\n"
+        "«я оплатил кличку»\n\n"
+        "богиня проверит и выдаст тебе имя сама"
+    )
+    await callback.answer()
+
+# ========== ИГРА ==========
+@router.message(F.text == "▶️ ИГРАТЬ")
+async def play_button(message: Message):
+    user_id = message.from_user.id
+    current_scene_id = await get_current_scene(user_id)
+    scene = scenes.get(current_scene_id)
+    if not scene:
+        scene = scenes.get("prolog_scene1")
+        await update_current_scene(user_id, "prolog_scene1")
+    await show_scene(message, user_id, scene, current_scene_id)
+
+async def show_scene(message: Message, user_id: int, scene: dict, scene_id: str):
+    if not scene:
+        scene = scenes.get("prolog_scene1")
+        scene_id = "prolog_scene1"
+    
+    text = scene.get("text", "Текст не найден")
+    choices = scene.get("choices", [])
+    photo = scene.get("photo")
+    
+    keyboard = None
+    if choices:
+        keyboard_buttons = []
+        for idx, choice in enumerate(choices):
+            callback_data = choice.get("callback_data")
+            if not callback_data:
+                callback_data = f"choice_{scene_id}_{idx}"
+            keyboard_buttons.append([InlineKeyboardButton(text=choice["text"], callback_data=callback_data)])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    
+    if photo:
+        await bot.send_photo(chat_id=message.chat.id, photo=photo, caption=text, reply_markup=keyboard)
+    else:
+        await bot.send_message(chat_id=message.chat.id, text=text, reply_markup=keyboard)
+
+@router.callback_query(F.data.startswith("choice_"))
+async def handle_choice(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    username = callback.from_user.username or f"user_{user_id}"
+    
+    parts = callback.data.split("_")
+    scene_id = "_".join(parts[1:-1])
+    choice_idx = int(parts[-1])
+    
+    scene = scenes.get(scene_id)
+    if not scene:
+        await callback.message.answer("Ошибка: сцена не найдена")
+        return
+    
+    choices = scene.get("choices", [])
+    if choice_idx >= len(choices):
+        await callback.message.answer("Ошибка: выбор не найден")
+        return
+    
+    next_scene_id = choices[choice_idx].get("next_scene")
+    
+    if next_scene_id == "chap5_check":
+        channel_ok = await check_channel_subscription(user_id, "chat_goddes")
+        if channel_ok:
+            await verify_tasks(user_id)
+            await callback.message.answer("✅ Задания выполнены!")
+            await asyncio.sleep(1)
+            next_scene_id = "chap5_scene1"
+        else:
+            await callback.message.answer("❌ Подпишись на канал @chat_goddes")
+            await asyncio.sleep(2)
+            next_scene_id = "chap5_tasks"
+    
+    if next_scene_id == "chap6_ideal":
+        await set_ending(user_id, "ideal")
+        await add_points(user_id, 50)
+        await add_achievement(user_id, "🏆 Идеальный пёс")
+        await post_achievement_to_channels(f"🏆 НОВОЕ ДОСТИЖЕНИЕ!\n\n@{username} прошёл игру и получил ИДЕАЛЬНЫЙ ФИНАЛ! +50 баллов")
+    elif next_scene_id == "chap6_neutral":
+        await set_ending(user_id, "neutral")
+        await add_points(user_id, 20)
+        await post_achievement_to_channels(f"🔸 НОВОЕ ДОСТИЖЕНИЕ!\n\n@{username} прошёл игру с НЕЙТРАЛЬНЫМ ФИНАЛОМ! +20 баллов")
+    elif next_scene_id == "chap6_bad":
+        await set_ending(user_id, "bad")
+        await add_points(user_id, 5)
+    
+    if next_scene_id:
+        await update_current_scene(user_id, next_scene_id)
+        next_scene = scenes.get(next_scene_id)
+        if next_scene:
+            try:
+                await callback.message.delete()
+            except:
+                pass
+            await show_scene(callback.message, user_id, next_scene, next_scene_id)
+
+@router.callback_query(F.data == "reset_and_play")
+async def reset_and_play(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    await reset_player(user_id)
+    await callback.message.delete()
+    await play_button(callback.message)
+    await callback.answer()
+
+# ========== ДРЕССИРОВКА ==========
+@router.message(F.text == "🔐 ДРЕССИРОВКА")
+async def dressage_button(message: Message):
+    user_id = message.from_user.id
+    current_level = await get_dressage_level(user_id)
+    
+    if current_level >= 5:
+        await message.answer("🏆 ТЫ ПРОШЁЛ ВСЮ ДРЕССИРОВКУ!\n\n🎀 Звание: «Дрессированный пёс»\n👑 Богиня Мила гордится тобой.")
+        return
+    
+    if current_level == 0:
+        await message.answer(
+            "🔐 ДРЕССИРОВКА — ИСПЫТАНИЯ ДЛЯ ПСОВ 🔐\n\n"
+            "💰 Стоимость доступа: 111 ₽\n\n"
+            f"💳 Оплата для РФ: {PAYMENT_LINK}\n"
+            f"🌍 Для пользователей из-за рубежа: напиши в ЛС @milka_femdomqueen — Богиня пришлёт ссылку на оплату через Tribute.\n\n"
+            "📌 После оплаты напиши в ЛС @milayaqueen и пришли чек. Богиня проверит и даст бесплатный код для первого испытания.\n\n"
+            "❗️ ВНИМАНИЕ: Код для первого испытания — БЕСПЛАТНЫЙ, но только после оплаты доступа к разделу.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 ОПЛАТИТЬ ДОСТУП (РФ)", url=PAYMENT_LINK)],
+                [InlineKeyboardButton(text="🌍 ЗАПРОСИТЬ ССЫЛКУ ДЛЯ ОПЛАТЫ", url="https://t.me/milayaqueen")],
+                [InlineKeyboardButton(text="🔑 У МЕНЯ ЕСТЬ КОД", callback_data="dressage_enter_code")]
+            ])
+        )
+    else:
+        next_level = current_level + 1
+        await message.answer(
+            f"🔐 Твой текущий уровень: {current_level}/5\n\nВведи код для испытания {next_level} (выдаётся после выполнения предыдущего).",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔑 ВВЕСТИ КОД", callback_data="dressage_enter_code")]
+            ])
+        )
+
+@router.callback_query(F.data == "dressage_enter_code")
+async def dressage_enter_code(callback: CallbackQuery):
+    await callback.message.answer("🔐 ВВЕДИ КОД ДОСТУПА\n\nНапиши код в чат.")
+    broadcast_data["waiting_for_dressage_code"] = callback.from_user.id
+    await callback.answer()
+
+# ========== СИССИ ==========
+@router.message(F.text == "🎀 СТАТЬ СИССИ")
+async def sissy_button(message: Message):
+    user_id = message.from_user.id
+    sissy_level = await get_sissy_level(user_id)
+    
+    if sissy_level >= 6:
+        await message.answer("🎀 ТЫ ПРОШЛА ВСЁ ОБУЧЕНИЕ СИССИ!\n\n💗 Звание: «Идеальная сисси»\n🔗 Доступ в закрытый чатик: выдаётся в ЛС @milayaqueen")
+        return
+    
+    if sissy_level == 0:
+        await message.answer(
+            "🎀 ОБУЧЕНИЕ СИССИ — ПРЕМИУМ-КОНТЕНТ\n\n"
+            "Тебя ждут 6 уроков трансформации в сисси.\n\n"
+            "💰 Стоимость доступа: 333 ₽\n\n"
+            f"💳 Оплата для РФ: {PAYMENT_LINK}\n"
+            f"🌍 Для пользователей из-за рубежа: напиши в ЛС @milayaqueen — Богиня пришлёт ссылку на оплату через Tribute.\n\n"
+            "📌 После оплаты напиши в ЛС @milayaqueen и пришли чек. Богиня проверит и даст код для первого урока.\n\n"
+            "🎁 Для тех, кто пройдёт ВСЕ уроки — доступ в закрытый чатик сисси!",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 ОПЛАТИТЬ ДОСТУП (РФ)", url=PAYMENT_LINK)],
+                [InlineKeyboardButton(text="🌍 ЗАПРОСИТЬ ССЫЛКУ ДЛЯ ОПЛАТЫ", url="https://t.me/milayaqueen")],
+                [InlineKeyboardButton(text="🔑 У МЕНЯ ЕСТЬ КОД", callback_data="sissy_enter_code")]
+            ])
+        )
+    else:
+        await show_sissy_lesson(message, user_id, sissy_level + 1)
+
+@router.callback_query(F.data == "sissy_enter_code")
+async def sissy_enter_code(callback: CallbackQuery):
+    await callback.message.answer("🎀 ВВЕДИ КОД ДОСТУПА\n\nНапиши код, который получил после оплаты.")
+    broadcast_data["waiting_for_sissy_code"] = callback.from_user.id
+    await callback.answer()
+
+async def show_sissy_lesson(message: Message, user_id: int, level: int):
+    if level > 6:
+        await message.answer("🎀 ТЫ ПРОШЛА ВСЁ ОБУЧЕНИЕ СИССИ!\n\n💗 Звание: «Идеальная сисси»\n🔗 Доступ в закрытый чатик: выдаётся в ЛС @milayaqueen")
+        return
+    await message.answer(
+        SISSY_LESSONS[level],
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔑 ВВЕСТИ КОД (ПОСЛЕ ВЫПОЛНЕНИЯ)", callback_data="sissy_enter_code")]
+        ])
+    )
+
+# ========== ТЁМНАЯ КОМНАТА ==========
+@router.message(F.text == "🔞 ТЁМНАЯ КОМНАТА")
+async def adult_room(message: Message):
+    user_id = message.from_user.id
+    adult_level = await get_adult_level(user_id)
+    
+    if adult_level >= 6:
+        await message.answer("🔞 ТЫ ПРОШЁЛ ВСЮ ТЁМНУЮ КОМНАТУ!\n\n💀 Звание: «Сломленный»\n🎁 Твой подарок — сессия с Богиней Милой!\nНапиши в ЛС @milayaqueen для согласования времени.")
+        return
+    
+    if adult_level == 0:
+        await message.answer(
+            "🔞 ТЁМНАЯ КОМНАТА 🔞\n\n"
+            "⚠️ ЭТО НЕ ДЛЯ ВСЕХ.\n"
+            "Тёмная комната — испытания для САМЫХ СМЕЛЫХ ПСОВ, которые готовы заглянуть за грань.\n\n"
+            "🔥 Здесь ты проверишь себя на прочность.\n"
+            "🔥 Здесь нет слабакам места.\n"
+            "🔥 Только те, кто действительно хочет служить, выдерживают до конца.\n\n"
+            "💰 Стоимость доступа: 777 ₽\n\n"
+            f"💳 Оплата для РФ: {PAYMENT_LINK}\n"
+            f"🌍 Для пользователей из-за рубежа: напиши в ЛС @milka_femdomqueen — Богиня пришлёт ссылку на оплату через Tribute.\n\n"
+            "📌 После оплаты напиши в ЛС @milayaqueen и пришли чек. Богиня проверит и даст код для первого испытания.\n\n"
+            "🎁 Для тех, кто пройдёт ВСЕ 6 испытаний — СЕССИЯ С БОГИНЕЙ МИЛОЙ в подарок!",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 ОПЛАТИТЬ ДОСТУП (РФ)", url=PAYMENT_LINK)],
+                [InlineKeyboardButton(text="🌍 ЗАПРОСИТЬ ССЫЛКУ ДЛЯ ОПЛАТЫ", url="https://t.me/milayaqueen")],
+                [InlineKeyboardButton(text="🔑 У МЕНЯ ЕСТЬ КОД", callback_data="adult_enter_code")]
+            ])
+        )
+    else:
+        await show_adult_task(message, user_id, adult_level + 1)
+
+@router.callback_query(F.data == "adult_enter_code")
+async def adult_enter_code(callback: CallbackQuery):
+    await callback.message.answer("🔞 ВВЕДИ КОД ДОСТУПА\n\nНапиши код в чат.")
+    broadcast_data["waiting_for_adult_code"] = callback.from_user.id
+    await callback.answer()
+
+async def show_adult_task(message: Message, user_id: int, level: int):
+    if level > 6:
+        await message.answer("🔞 ТЫ ПРОШЁЛ ВСЮ ТЁМНУЮ КОМНАТУ!\n\n💀 Звание: «Сломленный»\n🎁 Твой подарок — сессия с Богиней Милой!\nНапиши в ЛС @milayaqueen")
+        return
+    await message.answer(
+        ADULT_TASKS[level],
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔑 ВВЕСТИ КОД (ПОСЛЕ ВЫПОЛНЕНИЯ)", callback_data="adult_enter_code")]
+        ])
+    )
+
+# ========== КУБИКИ ==========
+@router.message(F.text == "🎲 КУБИКИ")
+async def dice_menu(message: Message):
+    user_id = message.from_user.id
+    rolls_left = await get_rolls_left(user_id)
+    
+    if rolls_left > 0:
+        await message.answer(
+            f"🎲 У тебя осталось {rolls_left} бросков!\n\n"
+            "Нажми кнопку чтобы бросить кубик:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🎲 БРОСИТЬ КУБИК", callback_data="dice_roll")]
+            ])
+        )
+        return
+    
+    await message.answer(
+        "🎲 ИГРА В КУБИКИ ОТ БОГИНИ МИЛЫ 🎲\n\n"
+        "🔥 ПРАВИЛА:\n"
+        "• Бросаешь кубик — выпадает число от 1 до 6\n"
+        "• Каждому числу — свой приз\n\n"
+        "🎁 ПРИЗЫ:\n"
+        "1️⃣ → ничего, просто так\n"
+        "2️⃣ → индивидуальное задание от Богини\n"
+        "3️⃣ → 3 дня голосовых унижений в ЛС\n"
+        "4️⃣ → очистить вещь ртом (фотоотчёт)\n"
+        "5️⃣ → эксклюзивный пак фото\n"
+        "6️⃣ → бесплатная пробная сессия\n\n"
+        "💰 ЦЕНЫ:\n"
+        "• 1 бросок — 222 ₽\n"
+        "• 3 броска — 444 ₽ (выгоднее!)\n"
+        "• 5 бросков — 555 ₽ (супер цена!)\n\n"
+        f"💳 Оплата: {DICE_PAYMENT_LINK}\n\n"
+        "📌 После оплаты нажми кнопку с нужным количеством бросков и пришли чек в ЛС @milka_femdomqueen\n"
+        "🔑 Богиня проверит и активирует броски.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎲 1 бросок - 222 ₽", callback_data="dice_buy_1")],
+            [InlineKeyboardButton(text="🎲 3 броска - 444 ₽", callback_data="dice_buy_3")],
+            [InlineKeyboardButton(text="🎲 5 бросков - 555 ₽", callback_data="dice_buy_5")],
+            [InlineKeyboardButton(text="💳 ОПЛАТИТЬ", url=DICE_PAYMENT_LINK)]
+        ])
+    )
+
+@router.callback_query(F.data.startswith("dice_buy_"))
+async def dice_buy(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    amount = int(callback.data.split("_")[2])
+    price = DICE_PRICES[amount]
+    
+    await callback.message.answer(
+        f"✅ Запрос на {amount} бросок(а) создан!\n\n"
+        f"💰 Сумма к оплате: {price} ₽\n"
+        f"💳 Оплати по ссылке: {DICE_PAYMENT_LINK}\n\n"
+        "📌 После оплаты отправь скриншот чека в ЛС @milayaqueen\n"
+        "🔑 Богиня проверит и добавит броски вручную"
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "dice_roll")
+async def dice_roll(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    rolls_left = await get_rolls_left(user_id)
+    
+    if rolls_left <= 0:
+        await callback.message.answer("❌ У тебя нет бросков. Купи новый пакет в меню 🎲 КУБИКИ")
+        await callback.answer()
+        return
+    
+    await set_rolls_left(user_id, rolls_left - 1)
+    await increment_used_rolls(user_id)
+    
+    result = random.randint(1, 6)
+    
+    await callback.message.answer(DICE_PRIZES[result])
+    
+    username = callback.from_user.username or callback.from_user.first_name
+    await bot.send_message(
+        ADMIN_ID,
+        f"🎲 КУБИКИ!\n\n"
+        f"👤 Пользователь: @{username}\n"
+        f"🎲 Результат: {result}\n"
+        f"🎁 Приз: {DICE_PRIZES[result].split(chr(10))[0]}\n"
+        f"📦 Осталось бросков: {await get_rolls_left(user_id)}"
+    )
+    await callback.answer()
+
+# ===== АДМИН-КОМАНДА ДЛЯ ДОБАВЛЕНИЯ БРОСКОВ =====
+@router.message(Command("add_dice"))
+async def cmd_add_dice(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("❌ /add_dice @username количество")
+        return
+    
+    username = args[1].replace("@", "").lower()
+    try:
+        amount = int(args[2])
+    except ValueError:
+        await message.answer("❌ Количество должно быть числом")
+        return
+    
+    if amount <= 0:
+        await message.answer("❌ Количество должно быть больше 0")
+        return
+    
+    async with aiosqlite.connect("game.db") as db:
+        async with db.execute("SELECT user_id FROM players WHERE LOWER(username) = ?", (username,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                await message.answer("❌ Пользователь не найден")
+                return
+            user_id = row[0]
+    
+    current = await get_rolls_left(user_id)
+    await set_rolls_left(user_id, current + amount)
+    
+    await message.answer(f"✅ {amount} бросков добавлено @{username}\n📦 Всего: {await get_rolls_left(user_id)}")
+    
+    try:
+        await bot.send_message(user_id, f"🎲 Богиня Мила добавила тебе {amount} бросков!\n\nНажми «🎲 КУБИКИ» чтобы играть.")
+    except:
+        pass
+
+# ========== ПРОМОКОДЫ ==========
+@router.message(F.text == "🎁 ПРОМОКОДЫ")
+async def promocode_menu(message: Message):
+    user_id = message.from_user.id
+    keyboard_buttons = []
+    
+    keyboard_buttons.append([InlineKeyboardButton(text="🔑 ВВЕСТИ ПРОМОКОД", callback_data="enter_promocode")])
+    keyboard_buttons.append([InlineKeyboardButton(text="👥 ПРИГЛАСИТЬ ДРУГА", callback_data="invite_friend")])
+    
+    if user_id in ADMIN_IDS:
+        keyboard_buttons.append([InlineKeyboardButton(text="➕ СОЗДАТЬ ПРОМОКОД", callback_data="admin_create_promo")])
+        keyboard_buttons.append([InlineKeyboardButton(text="📋 СПИСОК ПРОМОКОДОВ", callback_data="admin_list_promo")])
+    
+    await message.answer(
+        PROMOCODE_INFO,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    )
+
+@router.callback_query(F.data == "enter_promocode")
+async def enter_promocode(callback: CallbackQuery):
+    await callback.message.answer(
+        "🎁 ВВЕДИ ПРОМОКОД 🎁\n\n"
+        "Напиши промокод в чат."
+    )
+    broadcast_data["waiting_for_promocode"] = callback.from_user.id
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_create_promo")
+async def admin_create_promo(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔ Нет прав", show_alert=True)
+        return
+    
+    await callback.message.answer(
+        "➕ СОЗДАНИЕ ПРОМОКОДА\n\n"
+        "Шаг 1: Введите название промокода (код)\n"
+        "Например: MILA2025, SOSI, LOVE, NEWYEAR\n\n"
+        "❌ Для отмены напишите /cancel"
+    )
+    broadcast_data["create_promo_step"] = "waiting_for_code"
+    broadcast_data["create_promo_admin"] = callback.from_user.id
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_list_promo")
+async def admin_list_promo(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔ Нет прав", show_alert=True)
+        return
+    
+    if not active_promocodes:
+        await callback.message.answer("📭 Нет активных промокодов")
+        await callback.answer()
+        return
+    
+    text = "📋 АКТИВНЫЕ ПРОМОКОДЫ:\n\n"
+    for code, data in active_promocodes.items():
+        text += f"🔑 {code}\n"
+        text += f"🎁 {data['reward']}\n\n"
+    
+    await callback.message.answer(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 УДАЛИТЬ ПРОМОКОД", callback_data="admin_delete_promo")]
+        ])
+    )
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_delete_promo")
+async def admin_delete_promo(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔ Нет прав", show_alert=True)
+        return
+    
+    if not active_promocodes:
+        await callback.message.answer("📭 Нет активных промокодов")
+        await callback.answer()
+        return
+    
+    text = "🗑 ВЫБЕРИ ПРОМОКОД ДЛЯ УДАЛЕНИЯ:\n\n"
+    buttons = []
+    for code, data in active_promocodes.items():
+        text += f"🔑 {code} → {data['reward'][:30]}...\n"
+        buttons.append([InlineKeyboardButton(text=f"❌ {code}", callback_data=f"delete_promo_{code}")])
+    
+    buttons.append([InlineKeyboardButton(text="◀️ НАЗАД", callback_data="admin_list_promo")])
+    
+    await callback.message.answer(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("delete_promo_"))
+async def delete_promo_code(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔ Нет прав", show_alert=True)
+        return
+    
+    code = callback.data.replace("delete_promo_", "")
+    
+    if code in active_promocodes:
+        del active_promocodes[code]
+        await callback.message.answer(f"✅ Промокод {code} удалён")
+    else:
+        await callback.message.answer(f"❌ Промокод {code} не найден")
+    
+    await callback.answer()
+
+@router.callback_query(F.data == "invite_friend")
+async def invite_friend(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    invite_link = f"https://t.me/{(await bot.get_me()).username}?start=invite_{user_id}"
+    
+    await callback.message.answer(
+        f"👥 ТВОЯ РЕФЕРАЛЬНАЯ ССЫЛКА\n\n"
+        f"🔗 {invite_link}\n\n"
+        f"📌 Отправь её другу, чтобы он зарегистрировался в боте.\n"
+        f"🎁 Когда друг перейдёт по ссылке и запустит бота — ты получишь уведомление."
+    )
+    await callback.answer()
+
+# ========== ОТЗЫВЫ ==========
+@router.message(F.text == "📝 ОТЗЫВЫ")
+async def reviews_button(message: Message):
+    user_id = message.from_user.id
+    
+    async with aiosqlite.connect("game.db") as db:
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                author_name TEXT,
+                review_text TEXT,
+                review_date TEXT
+            )
+        ''')
+        await db.commit()
+        
+        async with db.execute("SELECT author_name, review_text, review_date FROM reviews ORDER BY review_date DESC LIMIT 10") as cursor:
+            reviews = await cursor.fetchall()
+    
+    keyboard_buttons = []
+    
+    if user_id in ADMIN_IDS:
+        keyboard_buttons.append([InlineKeyboardButton(text="➕ ДОБАВИТЬ ОТЗЫВ", callback_data="admin_add_review")])
+    
+    keyboard_buttons.append([InlineKeyboardButton(text="🔄 ОБНОВИТЬ", callback_data="refresh_reviews")])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    
+    if not reviews:
+        await message.answer(
+            "📭 ПОКА НЕТ ОПУБЛИКОВАННЫХ ОТЗЫВОВ\n\n"
+            "Богиня Мила скоро добавит первые отзывы от своих псов! 👑",
+            reply_markup=keyboard
+        )
+        return
+    
+    text = "👀 ОТЗЫВЫ НАШИХ ПСОВ\n\n"
+    for i, (author_name, review_text, review_date) in enumerate(reviews, 1):
+        text += f"{i}. ✍️ {author_name}\n"
+        text += f"📅 {review_date}\n"
+        text += f"💬 {review_text[:200]}\n\n"
+    
+    await message.answer(text, reply_markup=keyboard)
+
+@router.callback_query(F.data == "refresh_reviews")
+async def refresh_reviews(callback: CallbackQuery):
+    await callback.message.delete()
+    await reviews_button(callback.message)
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_add_review")
+async def admin_add_review_button(callback: CallbackQuery):
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("⛔ Нет прав", show_alert=True)
+        return
+    
+    await callback.message.answer(
+        "📝 ДОБАВЛЕНИЕ ОТЗЫВА\n\n"
+        "Введи команду в формате:\n"
+        "/add_review Имя Текст отзыва\n\n"
+        "Пример:\n"
+        "/add_review Милина Отличный бот, спасибо!\n\n"
+        "Имя и текст разделяются пробелом. Всё в одном сообщении!"
+    )
+    await callback.answer()
+
+@router.message(Command("add_review"))
+async def cmd_add_review(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("⛔ Нет прав")
+        return
+    
+    async with aiosqlite.connect("game.db") as db:
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                author_name TEXT,
+                review_text TEXT,
+                review_date TEXT
+            )
+        ''')
+        await db.commit()
+    
+    text = message.text.strip()
+    parts = text.split(maxsplit=2)
+    
+    if len(parts) < 3:
+        await message.answer(
+            "❌ Формат: /add_review Имя Текст_отзыва\n\n"
+            "Пример:\n"
+            "/add_review Максим Отличный бот, спасибо!\n\n"
+            "Имя и текст разделяются пробелом. Всё в одном сообщении!"
+        )
+        return
+    
+    author_name = parts[1].strip()
+    review_text = parts[2].strip()
+    review_date = time.strftime('%d.%m.%Y')
+    
+    if len(review_text) < 5:
+        await message.answer("❌ Текст отзыва слишком короткий (минимум 5 символов)")
+        return
+    
+    async with aiosqlite.connect("game.db") as db:
+        await db.execute(
+            "INSERT INTO reviews (author_name, review_text, review_date) VALUES (?, ?, ?)",
+            (author_name, review_text, review_date)
+        )
+        await db.commit()
+    
+    await message.answer(
+        f"✅ ОТЗЫВ ДОБАВЛЕН!\n\n"
+        f"✍️ Автор: {author_name}\n"
+        f"📅 {review_date}\n"
+        f"💬 {review_text[:200]}\n\n"
+        f"Нажми «📝 ОТЗЫВЫ» чтобы увидеть."
+    )
+
+@router.message(Command("del_review"))
+async def cmd_del_review(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("⛔ Нет прав")
+        return
+    
+    args = message.text.split()
+    if len(args) < 2:
+        async with aiosqlite.connect("game.db") as db:
+            async with db.execute("SELECT id, author_name, review_text, review_date FROM reviews ORDER BY review_date DESC LIMIT 20") as cursor:
+                reviews = await cursor.fetchall()
+        
+        if not reviews:
+            await message.answer("📭 Нет отзывов в базе")
+            return
+        
+        text = "📋 СПИСОК ОТЗЫВОВ:\n\n"
+        for review_id, author_name, review_text, review_date in reviews:
+            text += f"ID: {review_id} | {author_name} | {review_date}\n"
+            text += f"📝 {review_text[:50]}...\n\n"
+        
+        text += "\n❌ Для удаления введите: /del_review ID"
+        await message.answer(text)
+        return
+    
+    try:
+        review_id = int(args[1])
+    except ValueError:
+        await message.answer("❌ ID должен быть числом. Введите: /del_review 1")
+        return
+    
+    async with aiosqlite.connect("game.db") as db:
+        await db.execute("DELETE FROM reviews WHERE id = ?", (review_id,))
+        await db.commit()
+    
+    await message.answer(f"✅ Отзыв с ID {review_id} удалён")
+
+@router.message(Command("list_reviews"))
+async def cmd_list_reviews(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("⛔ Нет прав")
+        return
+    
+    async with aiosqlite.connect("game.db") as db:
+        async with db.execute("SELECT id, author_name, review_text, review_date FROM reviews ORDER BY review_date DESC") as cursor:
+            reviews = await cursor.fetchall()
+    
+    if not reviews:
+        await message.answer("📭 Нет отзывов в базе")
+        return
+    
+    text = "📋 СПИСОК ОТЗЫВОВ:\n\n"
+    for review_id, author_name, review_text, review_date in reviews:
+        text += f"ID: {review_id} | {author_name} | {review_date}\n"
+        text += f"📝 {review_text[:100]}\n\n"
+    
+    await message.answer(text)
+
+# ========== ДРУГИЕ РАЗДЕЛЫ ==========
+@router.message(F.text == "🔞 ПРИВАТКА")
+async def private_button(message: Message):
+    await message.answer(
+        "🔞 ПРИВАТКА 🔞\n\n"
+        "🔥 Самый горячий контент, который я делала за последнее время.\n"
+        "👑 Тщательно отобрано для послушных псов лично мной.\n\n"
+        "⚠️ Только для взрослых. Только для избранных.\n\n"
+        "💰 Стоимость доступа: 999 ₽\n\n"
+        f"💳 Оплата для РФ: {PAYMENT_LINK}\n"
+        f"🌍 Для пользователей из-за рубежа: напиши в ЛС @milka_femdomqueen — Богиня пришлёт ссылку на оплату через Tribute.\n\n"
+        "📌 После оплаты напиши в ЛС @milka_femdomqueen и пришли чек. Богиня проверит и выдаст ссылку на закрытый канал.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 ОПЛАТИТЬ ДОСТУП (РФ)", url=PAYMENT_LINK)],
+            [InlineKeyboardButton(text="🌍 ЗАПРОСИТЬ ССЫЛКУ ДЛЯ ОПЛАТЫ", url="https://t.me/milka_femdomqueen")]
+        ])
+    )
+
+@router.message(F.text == "👠 СЕССИЯ")
+async def session_button(message: Message):
+    await message.answer(
+        "👠 СЕССИЯ С БОГИНЕЙ МИЛОЙ 👠\n\n"
+        "Индивидуальная сессия: реальные задания, полный контроль, личное внимание.\n\n"
+        "💰 Стоимость сессии уточняй в ЛС @milka_femdomqueen\n\n"
+        f"💳 Оплата для РФ: {PAYMENT_LINK}\n"
+        f"🌍 Для пользователей из-за рубежа: напиши в ЛС @milka_femdomqueen — Богиня пришлёт ссылку на оплату через Tribute.\n\n"
+        "📌 После оплаты напиши в ЛС @milka_femdomqueen и пришли чек. Богиня свяжется с тобой и согласует время.\n\n"
+        "⚠️ ВАЖНО: Я — реальный человек, у меня тоже есть жизнь. Я обязательно отвечу, когда освобожусь.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 ОПЛАТИТЬ СЕССИЮ (РФ)", url=PAYMENT_LINK)],
+            [InlineKeyboardButton(text="🌍 ЗАПРОСИТЬ ССЫЛКУ ДЛЯ ОПЛАТЫ", url="https://t.me/milka_femdomqueen")]
+        ])
+    )
+
+# ========== ПОМОЩЬ ==========
+@router.message(F.text == "❓ ПОМОЩЬ")
+async def help_button(message: Message):
+    await message.answer(
+        "📖 ПОМОЩЬ\n\n"
+        "▶️ ИГРАТЬ — начать игру\n"
+        "🎀 СТАТЬ СИССИ — обучение (333 ₽)\n"
+        "🔐 ДРЕССИРОВКА — испытания (111 ₽)\n"
+        "🔞 ПРИВАТКА — эксклюзивный контент (999 ₽)\n"
+        "🔞 ТЁМНАЯ КОМНАТА — для взрослых (777 ₽)\n"
+        "👠 СЕССИЯ — индивидуальная сессия (цена в ЛС)\n"
+        "🎲 КУБИКИ — игра в кубики (222/444/555 ₽)\n"
+        "🎁 ПРОМОКОДЫ — бонусы за активность\n"
+        "📝 ОТЗЫВЫ — посмотреть отзывы других псов\n\n"
+        f"💳 ОПЛАТА ДЛЯ РФ: {PAYMENT_LINK}\n"
+        f"🌍 ОПЛАТА ДЛЯ ЗАРУБЕЖНЫХ ПОЛЬЗОВАТЕЛЕЙ:\n"
+        f"Напиши в ЛС @milla_femdomqueen — Богиня пришлёт ссылку на оплату через Tribute.\n\n"
+        "📌 ПОСЛЕ ОПЛАТЫ обязательно напиши в ЛС @milka_femdomqueen и пришли чек. Богиня проверит и выдаст код доступа.\n\n"
+        "⚠️ ВАЖНО: Бот постоянно обновляется. Рекомендуется периодически нажимать /start для синхронизации.\n\n"
+        "👑 По всем вопросам: @milka_femdomqueen"
+    )
+
+# ========== ОБЩИЙ ОБРАБОТЧИК ВВОДА ==========
+@router.message(Command("cancel"))
+async def cmd_cancel(message: Message):
+    if broadcast_data.get("create_promo_admin") == message.from_user.id:
+        broadcast_data.pop("create_promo_code", None)
+        broadcast_data.pop("create_promo_reward", None)
+        broadcast_data.pop("create_promo_step", None)
+        broadcast_data.pop("create_promo_admin", None)
+        await message.answer("❌ Создание промокода отменено")
+        return
+    
+    if broadcast_data.get("waiting_for_promocode") == message.from_user.id:
+        broadcast_data.pop("waiting_for_promocode", None)
+        await message.answer("❌ Ввод промокода отменён")
+        return
+    
+    if broadcast_data.get("waiting_for_dressage_code") == message.from_user.id:
+        broadcast_data.pop("waiting_for_dressage_code", None)
+        await message.answer("❌ Ввод кода отменён")
+        return
+    
+    if broadcast_data.get("waiting_for_sissy_code") == message.from_user.id:
+        broadcast_data.pop("waiting_for_sissy_code", None)
+        await message.answer("❌ Ввод кода отменён")
+        return
+    
+    if broadcast_data.get("waiting_for_adult_code") == message.from_user.id:
+        broadcast_data.pop("waiting_for_adult_code", None)
+        await message.answer("❌ Ввод кода отменён")
+        return
+    
+    await message.answer("❌ Нет активных операций для отмены")
+
+@router.message(F.text)
+async def handle_text_input(message: Message):
+    user_id = message.from_user.id
+    code = message.text.strip()
+    
+    # ===== СОЗДАНИЕ ПРОМОКОДА (АДМИН) =====
+    if broadcast_data.get("create_promo_admin") == user_id:
+        step = broadcast_data.get("create_promo_step")
+        
+        if step == "waiting_for_code":
+            promo_code = message.text.strip().upper()
+            
+            if promo_code in active_promocodes:
+                await message.answer("❌ Такой промокод уже существует. Введите другой:")
+                return
+            
+            if len(promo_code) < 2:
+                await message.answer("❌ Код слишком короткий (минимум 2 символа):")
+                return
+            
+            broadcast_data["create_promo_code"] = promo_code
+            broadcast_data["create_promo_step"] = "waiting_for_reward"
+            
+            await message.answer(
+                f"✅ Код: {promo_code}\n\n"
+                "Шаг 2: Введите награду (текст, который увидит пользователь)\n"
+                "Например: Бесплатная сессия, Скидка 50%, +5 бросков, Фотосет в ЛС\n\n"
+                "❌ Для отмены напишите /cancel"
+            )
+            return
+        
+        elif step == "waiting_for_reward":
+            reward = message.text.strip()
+            
+            if len(reward) < 2:
+                await message.answer("❌ Награда слишком короткая (минимум 2 символа):")
+                return
+            
+            promo_code = broadcast_data.get("create_promo_code")
+            
+            active_promocodes[promo_code] = {
+                "reward": reward
+            }
+            
+            await message.answer(
+                f"✅ ПРОМОКОД СОЗДАН!\n\n"
+                f"🔑 Код: {promo_code}\n"
+                f"🎁 Награда: {reward}\n\n"
+                f"Пользователи могут ввести этот код в разделе «🎁 ПРОМОКОДЫ»"
+            )
+            
+            broadcast_data.pop("create_promo_code", None)
+            broadcast_data.pop("create_promo_reward", None)
+            broadcast_data.pop("create_promo_step", None)
+            broadcast_data.pop("create_promo_admin", None)
+            return
+    
+    # ===== ПРОМОКОДЫ =====
+    if broadcast_data.get("waiting_for_promocode") == user_id:
+        broadcast_data.pop("waiting_for_promocode")
+        
+        promocode = message.text.strip().upper()
+        
+        if promocode in active_promocodes:
+            reward = active_promocodes[promocode]["reward"]
+            
+            await message.answer(
+                f"🎁 ПРОМОКОД АКТИВИРОВАН!\n\n"
+                f"✅ {reward}\n\n"
+                f"👑 Напиши в ЛС @milka_femdomqueen, чтобы получить награду!"
+            )
+            
+            del active_promocodes[promocode]
+            
+            username = message.from_user.username or message.from_user.first_name
+            await bot.send_message(
+                ADMIN_ID,
+                f"🎁 АКТИВИРОВАН ПРОМОКОД!\n\n"
+                f"👤 Пользователь: @{username}\n"
+                f"🔑 Промокод: {promocode}\n"
+                f"🎁 Награда: {reward}\n\n"
+                f"🔥 Нужно вручить награду в ЛС!"
+            )
+        else:
+            await message.answer(
+                f"❌ НЕВЕРНЫЙ ПРОМОКОД!\n\n"
+                f"Проверь правильность ввода."
+            )
+        return
+    
+    # ===== ДРЕССИРОВКА =====
+    if broadcast_data.get("waiting_for_dressage_code") == user_id:
+        current_level = await get_dressage_level(user_id)
+        
+        target_level = None
+        for level, c in DRESSAGE_CODES.items():
+            if c == code:
+                target_level = level
+                break
+        
+        if not target_level:
+            await message.answer("❌ Неверный код.")
+            broadcast_data.pop("waiting_for_dressage_code", None)
+            return
+        
+        if target_level != current_level + 1:
+            await message.answer(f"❌ Это код для испытания {target_level}. Сейчас тебе нужен код для испытания {current_level + 1}.")
+            broadcast_data.pop("waiting_for_dressage_code", None)
+            return
+        
+        broadcast_data.pop("waiting_for_dressage_code", None)
+        
+        if target_level == 1:
+            await update_dressage_level(user_id, 1)
+            await message.answer(
+                DRESSAGE_TASKS[1],
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔑 ВВЕСТИ КОД (ПОСЛЕ ВЫПОЛНЕНИЯ)", callback_data="dressage_enter_code")]
+                ])
+            )
+        else:
+            points_to_add = DRESSAGE_POINTS.get(target_level - 1, 10)
+            await add_points(user_id, points_to_add)
+            await update_dressage_level(user_id, target_level)
+            
+            if target_level == 5:
+                await complete_dressage(user_id)
+                await add_points(user_id, 50)
+                await add_achievement(user_id, "🏆 Дрессированный пёс")
+                await message.answer("🏆 ПОЗДРАВЛЯЮ! Ты прошёл всю дрессировку!\n\n🎀 Звание: «Дрессированный пёс»")
+            else:
+                await message.answer(
+                    f"✅ ИСПЫТАНИЕ {target_level - 1} ПРОЙДЕНО!\n\n+{points_to_add} баллов!\n\n{DRESSAGE_TASKS[target_level]}",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔑 ВВЕСТИ КОД (ПОСЛЕ ВЫПОЛНЕНИЯ)", callback_data="dressage_enter_code")]
+                    ])
+                )
+        return
+    
+    # ===== СИССИ =====
+    if broadcast_data.get("waiting_for_sissy_code") == user_id:
+        current_level = await get_sissy_level(user_id)
+        
+        target_level = None
+        for level, c in SISSY_CODES.items():
+            if c == code:
+                target_level = level
+                break
+        
+        if not target_level:
+            await message.answer("❌ Неверный код.")
+            broadcast_data.pop("waiting_for_sissy_code", None)
+            return
+        
+        if target_level != current_level + 1:
+            await message.answer(f"❌ Это код для урока {target_level}. Сейчас тебе нужен код для урока {current_level + 1}.")
+            broadcast_data.pop("waiting_for_sissy_code", None)
+            return
+        
+        broadcast_data.pop("waiting_for_sissy_code", None)
+        
+        if target_level == 1:
+            await update_sissy_level(user_id, 1)
+            await message.answer(
+                SISSY_LESSONS[1],
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔑 ВВЕСТИ КОД (ПОСЛЕ ВЫПОЛНЕНИЯ)", callback_data="sissy_enter_code")]
+                ])
+            )
+        else:
+            await add_points(user_id, 10)
+            await update_sissy_level(user_id, target_level)
+            
+            if target_level == 6:
+                await add_points(user_id, 50)
+                await add_achievement(user_id, "💗 Идеальная сисси")
+                await message.answer(
+                    "🎀 ПОЗДРАВЛЯЮ! Ты прошла всё обучение Сисси!\n\n"
+                    "💗 Звание: «Идеальная сисси»\n🎁 +50 бонусных баллов!\n\n"
+                    "🔗 Доступ в закрытый чатик: напиши в ЛС @milla_femdomqueen"
+                )
+            else:
+                await message.answer(
+                    f"✅ УРОК {target_level - 1} ПРОЙДЕН!\n\n+10 баллов!\n\n{SISSY_LESSONS[target_level]}",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔑 ВВЕСТИ КОД (ПОСЛЕ ВЫПОЛНЕНИЯ)", callback_data="sissy_enter_code")]
+                    ])
+                )
+        return
+    
+    # ===== ТЁМНАЯ КОМНАТА =====
+    if broadcast_data.get("waiting_for_adult_code") == user_id:
+        current_level = await get_adult_level(user_id)
+        
+        target_level = None
+        for level, c in ADULT_CODES.items():
+            if c == code:
+                target_level = level
+                break
+        
+        if not target_level:
+            await message.answer("❌ Неверный код.")
+            broadcast_data.pop("waiting_for_adult_code", None)
+            return
+        
+        if target_level != current_level + 1:
+            await message.answer(f"❌ Это код для испытания {target_level}. Сейчас тебе нужен код для испытания {current_level + 1}.")
+            broadcast_data.pop("waiting_for_adult_code", None)
+            return
+        
+        broadcast_data.pop("waiting_for_adult_code", None)
+        
+        if target_level == 1:
+            await update_adult_level(user_id, 1)
+            await message.answer(
+                ADULT_TASKS[1],
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔑 ВВЕСТИ КОД (ПОСЛЕ ВЫПОЛНЕНИЯ)", callback_data="adult_enter_code")]
+                ])
+            )
+        else:
+            await add_points(user_id, 10)
+            await update_adult_level(user_id, target_level)
+            
+            if target_level == 6:
+                await complete_adult(user_id)
+                await add_points(user_id, 50)
+                await add_achievement(user_id, "💀 Сломленный")
+                await message.answer(
+                    "🔞 ПОЗДРАВЛЯЮ! Ты прошёл ТЁМНУЮ КОМНАТУ!\n\n"
+                    "💀 Звание: «Сломленный»\n🎁 +50 бонусных баллов!\n\n"
+                    "🎁 ТВОЙ ПОДАРОК: СЕССИЯ С БОГИНЕЙ МИЛОЙ!\nНапиши в ЛС @milla_femdomqueen"
+                )
+            else:
+                await message.answer(
+                    f"✅ ИСПЫТАНИЕ {target_level - 1} ПРОЙДЕНО!\n\n+10 баллов!\n\n{ADULT_TASKS[target_level]}",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🔑 ВВЕСТИ КОД (ПОСЛЕ ВЫПОЛНЕНИЯ)", callback_data="adult_enter_code")]
+                    ])
+                )
+        return
+
+# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
+async def check_channel_subscription(user_id: int, channel_username: str) -> bool:
+    try:
+        member = await bot.get_chat_member(chat_id=f"@{channel_username}", user_id=user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except:
+        return False
+
+async def post_achievement_to_channels(text: str):
+    for channel in CHANNELS:
+        try:
+            await bot.send_message(f"@{channel}", text)
+        except:
+            pass
+
+# ========== АДМИН-КОМАНДЫ ==========
+@router.message(Command("force_sissy"))
+async def cmd_force_sissy(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("❌ /force_sissy @username")
+        return
+    
+    username = args[1].replace("@", "").lower()
+    
+    async with aiosqlite.connect("game.db") as db:
+        async with db.execute("SELECT user_id FROM players WHERE LOWER(username) = ?", (username,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                await message.answer(f"❌ Пользователь @{username} не найден")
+                return
+            user_id = row[0]
+        
+        await db.execute("UPDATE players SET sissy_access = 1 WHERE user_id = ?", (user_id,))
+        await db.commit()
+    
+    await message.answer(f"✅ Доступ к Сисси принудительно открыт для @{username}")
+    
+    try:
+        await bot.send_message(user_id, "🎀 Твой доступ к обучению Сисси открыт!\n\nНажми кнопку «🎀 СТАТЬ СИССИ» в главном меню.")
+    except:
+        pass
+
+@router.message(Command("set_level"))
+async def cmd_set_level(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("❌ /set_level @username уровень")
+        return
+    
+    username = args[1].replace("@", "").lower()
+    try:
+        level = int(args[2])
+    except ValueError:
+        await message.answer("❌ Уровень должен быть числом")
+        return
+    
+    async with aiosqlite.connect("game.db") as db:
+        async with db.execute("SELECT user_id FROM players WHERE LOWER(username) = ?", (username,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                await message.answer("❌ Пользователь не найден")
+                return
+            user_id = row[0]
+        await db.execute("UPDATE players SET dressage_level = ? WHERE user_id = ?", (level, user_id))
+        await db.commit()
+    
+    await message.answer(f"✅ Уровень @{username} установлен на {level}")
+
+@router.message(Command("set_sissy_level"))
+async def cmd_set_sissy_level(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("❌ /set_sissy_level @username уровень (0-6)")
+        return
+    
+    username = args[1].replace("@", "").lower()
+    try:
+        level = int(args[2])
+    except ValueError:
+        await message.answer("❌ Уровень должен быть числом")
+        return
+    
+    if level < 0 or level > 6:
+        await message.answer("❌ Уровень должен быть от 0 до 6")
+        return
+    
+    async with aiosqlite.connect("game.db") as db:
+        async with db.execute("SELECT user_id FROM players WHERE LOWER(username) = ?", (username,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                await message.answer("❌ Пользователь не найден")
+                return
+            user_id = row[0]
+        await db.execute("UPDATE players SET sissy_level = ? WHERE user_id = ?", (level, user_id))
+        await db.commit()
+    
+    await message.answer(f"✅ Уровень Сисси для @{username} установлен на {level}")
+
+@router.message(Command("set_adult_level"))
+async def cmd_set_adult_level(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("❌ /set_adult_level @username уровень (0-6)")
+        return
+    
+    username = args[1].replace("@", "").lower()
+    try:
+        level = int(args[2])
+    except ValueError:
+        await message.answer("❌ Уровень должен быть числом")
+        return
+    
+    if level < 0 or level > 6:
+        await message.answer("❌ Уровень должен быть от 0 до 6")
+        return
+    
+    async with aiosqlite.connect("game.db") as db:
+        async with db.execute("SELECT user_id FROM players WHERE LOWER(username) = ?", (username,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                await message.answer("❌ Пользователь не найден")
+                return
+            user_id = row[0]
+        await db.execute("UPDATE players SET adult_level = ? WHERE user_id = ?", (level, user_id))
+        await db.commit()
+    
+    await message.answer(f"✅ Уровень Тёмной комнаты для @{username} установлен на {level}")
+
+@router.message(Command("set_nickname"))
+async def cmd_set_nickname(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    args = message.text.split()
+    if len(args) < 3:
+        await message.answer("❌ /set_nickname @username кличка")
+        return
+    
+    username = args[1].replace("@", "").lower()
+    nickname = " ".join(args[2:])
+    
+    async with aiosqlite.connect("game.db") as db:
+        async with db.execute("SELECT user_id FROM players WHERE LOWER(username) = ?", (username,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                await message.answer("❌ Пользователь не найден")
+                return
+            user_id = row[0]
+        await db.execute("UPDATE players SET nickname = ? WHERE user_id = ?", (nickname, user_id))
+        await db.commit()
+    
+    await message.answer(f"✅ Кличка «{nickname}» выдана @{username}")
+    
+    try:
+        await bot.send_message(user_id, f"🏷️ Богиня Мила дала тебе кличку: {nickname}\n\nТеперь она будет отображаться в твоём профиле.")
+    except:
+        pass
+
+@router.message(Command("a"))
+async def cmd_admin(message: Message):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("⛔ Нет прав")
+        return
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ ДОБАВИТЬ КАРТИНКУ", callback_data="admin_add_img")],
+        [InlineKeyboardButton(text="📋 СПИСОК ИГРОКОВ", callback_data="admin_players")],
+        [InlineKeyboardButton(text="📊 СТАТИСТИКА", callback_data="admin_stats")]
+    ])
+    await message.answer("🔧 АДМИН-ПАНЕЛЬ", reply_markup=keyboard)
+
+@router.callback_query(F.data == "admin_add_img")
+async def admin_add_img(callback: CallbackQuery):
+    await callback.answer("📸 Отправь фото боту — я пришлю file_id", show_alert=True)
+
+@router.callback_query(F.data == "admin_players")
+async def admin_players(callback: CallbackQuery):
+    players = await get_all_players()
+    if not players:
+        await callback.message.answer("📭 Нет игроков")
+        return
+    text = "👥 СПИСОК ИГРОКОВ:\n\n"
+    for user_id, username, payment_tier, rolls_left, used_rolls in players[:20]:
+        text += f"• {username}\n"
+    await callback.message.answer(text)
+
+@router.callback_query(F.data == "admin_stats")
+async def admin_stats(callback: CallbackQuery):
+    stats = await get_stats()
+    await callback.message.answer(f"📊 Всего игроков: {stats['total_players']}")
