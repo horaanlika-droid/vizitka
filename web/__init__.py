@@ -673,26 +673,68 @@ async def handle_admin_settings_wallet(request: web.Request) -> web.Response:
 
 # ---------- app factory ----------
 
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-Admin-Token, X-Dev-User",
+}
+
+
+@web.middleware
+async def cors_middleware(request: web.Request, handler):
+    """CORS для Mini App.
+
+    ВАЖНО: декоратор @web.middleware обязателен — без него aiohttp
+    считает middleware old-style (app, handler) и ВЕСЬ веб падает с 500,
+    а боты при этом продолжают работать.
+    """
+    # preflight — отвечаем сразу, не дергая хендлеры
+    if request.method == "OPTIONS":
+        return web.Response(headers=dict(CORS_HEADERS))
+    try:
+        resp = await handler(request)
+    except web.HTTPException as ex:
+        # добавляем CORS и к ошибкам (403/404), чтобы Mini App их видел
+        for k, v in CORS_HEADERS.items():
+            try:
+                ex.headers[k] = v
+            except Exception:
+                pass
+        raise
+    try:
+        for k, v in CORS_HEADERS.items():
+            resp.headers[k] = v
+    except Exception:
+        pass
+    return resp
+
+
+async def on_response_prepare(request: web.Request, response: web.StreamResponse):
+    """Страховка: CORS-заголовки даже на ответах вне middleware."""
+    try:
+        for k, v in CORS_HEADERS.items():
+            if k not in response.headers:
+                response.headers[k] = v
+    except Exception:
+        pass
+
+
+async def handle_health(request: web.Request) -> web.Response:
+    """Healthcheck для БотХоста / Render / Railway."""
+    return web.json_response({"ok": True, "service": "vizitka"})
+
+
 def create_app() -> web.Application:
-    app = web.Application()
-
-    # CORS для Mini App
-    async def cors_middleware(request, handler):
-        try:
-            resp = await handler(request)
-        except web.HTTPException as ex:
-            resp = ex
-        # Добавляем CORS заголовки
-        if isinstance(resp, web.StreamResponse):
-            resp.headers["Access-Control-Allow-Origin"] = "*"
-            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Telegram-Init-Data, X-Admin-Token, X-Dev-User"
-        return resp
-
-    app.middlewares.append(cors_middleware)
+    app = web.Application(middlewares=[cors_middleware])
+    app.on_response_prepare.append(on_response_prepare)
 
     # routes
     app.router.add_get("/", handle_root)
+    # healthcheck-и для хостингов (БотХост пингует корень или /health)
+    app.router.add_get("/health", handle_health)
+    app.router.add_get("/ping", handle_health)
+    app.router.add_get("/api/health", handle_health)
+    app.router.add_get("/api/ping", handle_health)
     app.router.add_get("/api/config", handle_config)
     app.router.add_get("/api/products", handle_products)
     app.router.add_get("/api/products/{id}", handle_product_one)
@@ -717,13 +759,9 @@ def create_app() -> web.Application:
     app.router.add_post("/api/admin/settings/wallet", handle_admin_settings_wallet)
     app.router.add_get("/api/admin/settings/wallet", handle_admin_settings_wallet)
 
-    # OPTIONS для CORS preflight
+    # OPTIONS для CORS preflight (дубль страховки, основной — в middleware)
     async def options_handler(request):
-        return web.Response(headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-Admin-Token, X-Dev-User",
-        })
+        return web.Response(headers=dict(CORS_HEADERS))
     app.router.add_route("OPTIONS", "/{tail:.*}", options_handler)
 
     return app
@@ -738,9 +776,27 @@ async def run_web_app():
     app = create_app()
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, host=settings.host, port=settings.port)
-    await site.start()
+    try:
+        site = web.TCPSite(runner, host=settings.host, port=settings.port)
+        await site.start()
+    except OSError as e:
+        log.error("web: НЕ МОГУ слушать %s:%s — %s. "
+                  "Проверь PORT в панели хостинга (должен совпадать).", settings.host, settings.port, e)
+        try:
+            await runner.cleanup()
+        except Exception:
+            pass
+        raise
     log.info("web: слушает %s:%s public=%s", settings.host, settings.port, settings.public_url or "—")
+    log.info("web: витрина / | health /health | api /api/products | admin /admin?admin_token=...")
     # держим
-    while True:
-        await asyncio.sleep(3600)
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        pass
+    finally:
+        try:
+            await runner.cleanup()
+        except Exception:
+            pass
