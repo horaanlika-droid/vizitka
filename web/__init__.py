@@ -146,12 +146,9 @@ async function load() {{
   }}
 }}
 async function buy(id){{
-  const p = PRODUCTS[id];
-  const title = p ? (p.title||'') : '';
-  const msg = title ? 'Госпожа, хочу купить «'+title+'». Подскажите, пожалуйста, реквизиты.' : 'Госпожа, хочу купить. Подскажите, пожалуйста, реквизиты.';
-  const share = 'https://t.me/share/url?url=&text='+encodeURIComponent(msg);
-  if(tg && typeof tg.openTelegramLink === 'function'){{ try{{ tg.openTelegramLink(share); return; }}catch(e){{}} }}
-  window.open(share, '_blank');
+  const url = 'https://t.me/milayaqueen';
+  if(tg && typeof tg.openTelegramLink === 'function'){{ try{{ tg.openTelegramLink(url); return; }}catch(e){{}} }}
+  window.open(url, '_blank');
 }}
 load();
 if(tg?.initDataUnsafe?.user) document.getElementById('user').textContent = '@'+(tg.initDataUnsafe.user.username||tg.initDataUnsafe.user.first_name);
