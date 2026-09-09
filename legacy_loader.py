@@ -49,12 +49,23 @@ def load_legacy() -> ModuleType:
     if root not in sys.path:
         sys.path.insert(0, root)
 
+    # spec_from_file_location не работает для файлов без .py — делаем fallback через exec
     spec = importlib.util.spec_from_file_location("legacy_handlers", path)
-    if not spec or not spec.loader:
-        raise ImportError(f"не могу загрузить {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["legacy_handlers"] = module
-    spec.loader.exec_module(module)
+    if spec and spec.loader:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["legacy_handlers"] = module
+        spec.loader.exec_module(module)
+    else:
+        # ручная загрузка: читаем файл как текст и исполняем
+        log.warning("legacy: файл без .py расширения (%s), гружу через exec", path.name)
+        import types
+        module = types.ModuleType("legacy_handlers")
+        sys.modules["legacy_handlers"] = module
+        # нужно подставить __file__ для относительных импортов
+        module.__file__ = str(path)
+        code = path.read_text(encoding="utf-8", errors="ignore")
+        # компилируем и исполняем в контексте модуля
+        exec(compile(code, str(path), "exec"), module.__dict__)
 
     # --- перекрываем константы значениями из ENV ---
     module.PAYMENT_LINK = settings.payment_link

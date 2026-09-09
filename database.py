@@ -47,6 +47,8 @@ __all__ = [
     "db_add_review", "db_list_reviews", "db_delete_review",
     # курс
     "get_gram_rate", "set_gram_rate",
+    # общие настройки (для минимального деплоя)
+    "get_setting", "set_setting", "get_wallet_address", "set_wallet_address",
 ]
 
 _lock = asyncio.Lock()
@@ -67,14 +69,16 @@ async def _connect() -> aiosqlite.Connection:
 
 async def _fetchone(query: str, params: tuple = ()) -> Optional[aiosqlite.Row]:
     async with _lock:
-        async with await _connect() as db:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(query, params) as cur:
                 return await cur.fetchone()
 
 
 async def _fetchall(query: str, params: tuple = ()) -> list[aiosqlite.Row]:
     async with _lock:
-        async with await _connect() as db:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(query, params) as cur:
                 return await cur.fetchall()
 
@@ -82,7 +86,8 @@ async def _fetchall(query: str, params: tuple = ()) -> list[aiosqlite.Row]:
 async def _exec(query: str, params: tuple = ()) -> int:
     """Выполнить INSERT/UPDATE/DELETE. Возвращает lastrowid."""
     async with _lock:
-        async with await _connect() as db:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
             cur = await db.execute(query, params)
             await db.commit()
             return cur.lastrowid or 0
@@ -90,7 +95,8 @@ async def _exec(query: str, params: tuple = ()) -> int:
 
 async def _execmany(query: str, seq: list[tuple]) -> None:
     async with _lock:
-        async with await _connect() as db:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
             await db.executemany(query, seq)
             await db.commit()
 
@@ -214,7 +220,8 @@ CREATE TABLE IF NOT EXISTS payments (
 async def ensure_schema() -> None:
     """Создать таблицы и докрутить недостающие колонки players (для старого game.db)."""
     async with _lock:
-        async with await _connect() as db:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
             await db.executescript(_SCHEMA_SQL)
             async with db.execute("PRAGMA table_info(players)") as cur:
                 existing = {row[1] for row in await cur.fetchall()}
@@ -472,7 +479,8 @@ async def get_product(product_id: int) -> Optional[dict[str, Any]]:
 
 async def list_products(active_only: bool = True, category: str = "") -> list[dict[str, Any]]:
     q = "SELECT * FROM products"
-    conds, params = [], []  # type: list[str], list[Any]
+    conds: list[str] = []
+    params: list[Any] = []
     if active_only:
         conds.append("is_active = 1")
     if category:
@@ -670,3 +678,31 @@ async def gram_price_for(product: dict[str, Any]) -> float | None:
         if rate > 0:
             return round(float(product["price_rub"]) / rate, 4)
     return None
+
+
+# ---------- общие настройки (для минимального деплоя TONAPI_KEY + ADMIN_IDS) ----------
+
+async def get_setting(key: str) -> str:
+    row = await _fetchone("SELECT value FROM settings WHERE key = ?", (key,))
+    return str(row["value"]) if row and row["value"] is not None else ""
+
+
+async def set_setting(key: str, value: str) -> None:
+    await _exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
+
+
+async def get_wallet_address() -> str:
+    """Кошелек для TONAPI: сначала ENV, потом БД, потом пусто."""
+    env_wallet = (settings.ton_wallet_address or settings.gram_wallet_address or "").strip()
+    if env_wallet:
+        return env_wallet
+    db_wallet = await get_setting("ton_wallet_address") or await get_setting("gram_wallet_address")
+    return db_wallet.strip()
+
+
+async def set_wallet_address(address: str) -> None:
+    address = (address or "").strip()
+    if not address:
+        return
+    await set_setting("ton_wallet_address", address)
+    await set_setting("gram_wallet_address", address)
