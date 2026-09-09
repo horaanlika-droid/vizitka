@@ -14,7 +14,7 @@ from typing import Any, Optional
 import aiosqlite
 from aiogram import BaseMiddleware, Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -100,10 +100,20 @@ class SessionComment(StatesGroup):
     text = State()
 
 
+class HotOffer(StatesGroup):
+    text = State()
+    price = State()
+    photo = State()
+    edit_text = State()
+    edit_price = State()
+    edit_photo = State()
+
+
 # ---------- клавиатуры ----------
 
 def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔥 Горячее предложение", callback_data="adm:hot_offer")],
         [InlineKeyboardButton(text="🛍 Товары", callback_data="adm:products"),
          InlineKeyboardButton(text="🧾 Заказы", callback_data="adm:orders")],
         [InlineKeyboardButton(text="👠 Сессии", callback_data="adm:sessions"),
@@ -838,6 +848,228 @@ async def cb_broadcast_go(cb: CallbackQuery, state: FSMContext) -> None:
     await cb.answer()
 
 
+# ---------- горячее предложение ----------
+
+async def cb_hot_offer(cb: CallbackQuery, state: FSMContext) -> None:
+    """Показать текущее горячее предложение и опции управления."""
+    await state.clear()
+    offer = await db.get_hot_offer()
+    
+    if offer["text"]:
+        status = "🟢 АКТИВНО" if offer["is_active"] else "⚫️ ВЫКЛЮЧЕНО"
+        text = f"🔥 <b>Горячее предложение</b>\n\n{status}\n\n"
+        text += f"<b>Текст:</b>\n{offer['text']}\n\n"
+        if offer["price"]:
+            text += f"💰 <b>Цена:</b> {offer['price']}\n"
+        if offer["photo_file_id"]:
+            text += "🖼 Фото: есть\n"
+        
+        kb_rows = []
+        if offer["is_active"]:
+            kb_rows.append([InlineKeyboardButton(text="⚫️ Выключить", callback_data="hot:deactivate")])
+        else:
+            kb_rows.append([InlineKeyboardButton(text="🟢 Включить", callback_data="hot:activate")])
+        kb_rows.extend([
+            [InlineKeyboardButton(text="✏️ Изменить текст", callback_data="hot:edit_text"),
+             InlineKeyboardButton(text="💰 Изменить цену", callback_data="hot:edit_price")],
+            [InlineKeyboardButton(text="🖼 Изменить фото", callback_data="hot:edit_photo"),
+             InlineKeyboardButton(text="🗑 Удалить", callback_data="hot:delete")],
+            [InlineKeyboardButton(text="◀️ Меню", callback_data="adm:menu")]
+        ])
+        kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+        
+        if offer["photo_file_id"]:
+            try:
+                await cb.message.delete()
+            except Exception:
+                pass
+            await cb.message.answer_photo(offer["photo_file_id"], caption=text, reply_markup=kb)
+        else:
+            await cb.message.edit_text(text, reply_markup=kb)
+    else:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Создать предложение", callback_data="hot:create")],
+            [InlineKeyboardButton(text="◀️ Меню", callback_data="adm:menu")]
+        ])
+        await cb.message.edit_text("🔥 <b>Горячее предложение</b>\n\nПредложение не создано.", reply_markup=kb)
+    await cb.answer()
+
+
+async def cb_hot_create(cb: CallbackQuery, state: FSMContext) -> None:
+    """Начать создание горячего предложения."""
+    await state.clear()
+    await state.set_state(HotOffer.text)
+    await cb.message.answer("🔥 <b>Новое горячее предложение</b>\n\n"
+                           "Шаг 1/3: введи <b>текст</b> предложения:\n"
+                           "<i>Например: Скидка 20% на все сессии до конца недели!</i>")
+    await cb.answer()
+
+
+async def hot_text(message: Message, state: FSMContext) -> None:
+    """Получить текст горячего предложения."""
+    text = (message.text or "").strip()
+    if len(text) < 3:
+        await message.answer("Текст слишком короткий (минимум 3 символа)")
+        return
+    await state.update_data(text=text)
+    await state.set_state(HotOffer.price)
+    await message.answer("Шаг 2/3: введи <b>цену</b> (или «-», если без цены):\n"
+                        "<i>Например: 500 ₽ или 50 GRAM</i>")
+
+
+async def hot_price(message: Message, state: FSMContext) -> None:
+    """Получить цену горячего предложения."""
+    price = (message.text or "").strip()
+    price = "" if price == "-" else price
+    await state.update_data(price=price)
+    await state.set_state(HotOffer.photo)
+    await message.answer("Шаг 3/3: пришли <b>фото</b> (или «-», если без фото):")
+
+
+async def hot_photo(message: Message, state: FSMContext) -> None:
+    """Получить фото горячего предложения и сохранить."""
+    data = await state.get_data()
+    photo_file_id = ""
+    
+    if message.photo:
+        photo_file_id = message.photo[-1].file_id
+    elif (message.text or "").strip() != "-":
+        await message.answer("Пришли фото или «-»")
+        return
+    
+    await db.set_hot_offer(
+        text=data.get("text", ""),
+        photo_file_id=photo_file_id,
+        price=data.get("price", ""),
+        is_active=True
+    )
+    await state.clear()
+    
+    await message.answer("✅ Горячее предложение создано и активировано!", reply_markup=main_menu())
+
+
+async def cb_hot_activate(cb: CallbackQuery, state: FSMContext) -> None:
+    """Активировать горячее предложение."""
+    offer = await db.get_hot_offer()
+    await db.set_hot_offer(
+        text=offer["text"],
+        photo_file_id=offer["photo_file_id"],
+        price=offer["price"],
+        emoji=offer["emoji"],
+        is_active=True
+    )
+    await cb.answer("🟢 Активировано")
+    await state.clear()
+    await cb_hot_offer(cb, state)
+
+
+async def cb_hot_deactivate(cb: CallbackQuery, state: FSMContext) -> None:
+    """Деактивировать горячее предложение."""
+    offer = await db.get_hot_offer()
+    await db.set_hot_offer(
+        text=offer["text"],
+        photo_file_id=offer["photo_file_id"],
+        price=offer["price"],
+        emoji=offer["emoji"],
+        is_active=False
+    )
+    await cb.answer("⚫️ Выключено")
+    await state.clear()
+    await cb_hot_offer(cb, state)
+
+
+async def cb_hot_delete(cb: CallbackQuery) -> None:
+    """Удалить горячее предложение."""
+    await db.clear_hot_offer()
+    await cb.answer("🗑 Удалено")
+    await cb.message.edit_text("🔥 <b>Горячее предложение</b>\n\nПредложение удалено.",
+                               reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                                   [InlineKeyboardButton(text="➕ Создать предложение", callback_data="hot:create")],
+                                   [InlineKeyboardButton(text="◀️ Меню", callback_data="adm:menu")]
+                               ]))
+
+
+async def cb_hot_edit_text(cb: CallbackQuery, state: FSMContext) -> None:
+    """Начать редактирование текста горячего предложения."""
+    await state.clear()
+    await state.set_state(HotOffer.edit_text)
+    await cb.message.answer("✏️ Введи новый <b>текст</b> горячего предложения:")
+    await cb.answer()
+
+
+async def cb_hot_edit_price(cb: CallbackQuery, state: FSMContext) -> None:
+    """Начать редактирование цены горячего предложения."""
+    await state.clear()
+    await state.set_state(HotOffer.edit_price)
+    await cb.message.answer("💰 Введи новую <b>цену</b> (или «-», чтобы убрать):")
+    await cb.answer()
+
+
+async def cb_hot_edit_photo(cb: CallbackQuery, state: FSMContext) -> None:
+    """Начать редактирование фото горячего предложения."""
+    await state.clear()
+    await state.set_state(HotOffer.edit_photo)
+    await cb.message.answer("🖼 Пришли новое <b>фото</b> (или «-», чтобы убрать):")
+    await cb.answer()
+
+
+async def hot_edit_text(message: Message, state: FSMContext) -> None:
+    """Обновить текст горячего предложения."""
+    text = (message.text or "").strip()
+    if len(text) < 3:
+        await message.answer("Текст слишком короткий (минимум 3 символа)")
+        return
+    
+    offer = await db.get_hot_offer()
+    await db.set_hot_offer(
+        text=text,
+        photo_file_id=offer["photo_file_id"],
+        price=offer["price"],
+        emoji=offer["emoji"],
+        is_active=offer["is_active"]
+    )
+    await state.clear()
+    await message.answer("✅ Текст обновлён", reply_markup=main_menu())
+
+
+async def hot_edit_price(message: Message, state: FSMContext) -> None:
+    """Обновить цену горячего предложения."""
+    price = (message.text or "").strip()
+    price = "" if price == "-" else price
+    
+    offer = await db.get_hot_offer()
+    await db.set_hot_offer(
+        text=offer["text"],
+        photo_file_id=offer["photo_file_id"],
+        price=price,
+        emoji=offer["emoji"],
+        is_active=offer["is_active"]
+    )
+    await state.clear()
+    await message.answer("✅ Цена обновлена", reply_markup=main_menu())
+
+
+async def hot_edit_photo(message: Message, state: FSMContext) -> None:
+    """Обновить фото горячего предложения."""
+    photo_file_id = ""
+    if message.photo:
+        photo_file_id = message.photo[-1].file_id
+    elif (message.text or "").strip() != "-":
+        await message.answer("Пришли фото или «-»")
+        return
+    
+    offer = await db.get_hot_offer()
+    await db.set_hot_offer(
+        text=offer["text"],
+        photo_file_id=photo_file_id,
+        price=offer["price"],
+        emoji=offer["emoji"],
+        is_active=offer["is_active"]
+    )
+    await state.clear()
+    await message.answer("✅ Фото обновлено", reply_markup=main_menu())
+
+
 # ---------- регистрация ----------
 
 def build_admin_bot() -> tuple[Bot, Dispatcher]:
@@ -847,9 +1079,9 @@ def build_admin_bot() -> tuple[Bot, Dispatcher]:
     dp.message.middleware(AdminGuard())
     dp.callback_query.middleware(AdminGuard())
 
-    dp.message.register(cmd_start, Command("start"))
+    dp.message.register(cmd_start, Command("start", "admin", "админ"))
     dp.message.register(cmd_cancel, Command("cancel"))
-    dp.message.register(cb_photo_id, F.photo)
+    dp.message.register(cb_photo_id, F.photo, StateFilter(None))
 
     dp.callback_query.register(cb_menu, F.data == "adm:menu")
     dp.callback_query.register(cb_products, F.data == "adm:products")
@@ -903,6 +1135,22 @@ def build_admin_bot() -> tuple[Bot, Dispatcher]:
     dp.message.register(rate_value, SetRate.value)
     dp.message.register(dice_username, AddDice.username)
     dp.message.register(dice_amount, AddDice.amount)
+
+    # Горячее предложение
+    dp.callback_query.register(cb_hot_offer, F.data == "adm:hot_offer")
+    dp.callback_query.register(cb_hot_create, F.data == "hot:create")
+    dp.callback_query.register(cb_hot_activate, F.data == "hot:activate")
+    dp.callback_query.register(cb_hot_deactivate, F.data == "hot:deactivate")
+    dp.callback_query.register(cb_hot_delete, F.data == "hot:delete")
+    dp.callback_query.register(cb_hot_edit_text, F.data == "hot:edit_text")
+    dp.callback_query.register(cb_hot_edit_price, F.data == "hot:edit_price")
+    dp.callback_query.register(cb_hot_edit_photo, F.data == "hot:edit_photo")
+    dp.message.register(hot_text, HotOffer.text)
+    dp.message.register(hot_price, HotOffer.price)
+    dp.message.register(hot_photo, HotOffer.photo)
+    dp.message.register(hot_edit_text, HotOffer.edit_text)
+    dp.message.register(hot_edit_price, HotOffer.edit_price)
+    dp.message.register(hot_edit_photo, HotOffer.edit_photo)
 
     return bot, dp
 
