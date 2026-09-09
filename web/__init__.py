@@ -16,7 +16,7 @@
 - GET /admin — веб-админка (требует ADMIN_PANEL_TOKEN)
 - /api/admin/* — админ API
 
-Фиксы для Ботхоста:
+Фиксы для сервера:
 - Убран catch-all OPTIONS /{tail:.*} который давал 405 на любые неизвестные GET
 - Добавлен SPA fallback: неизвестные не-API пути отдают index.html (200), а не 404/405
 - / и /index.html и /app и т.д. теперь всегда отдают витрину
@@ -80,7 +80,7 @@ async def _download_telegram_file(file_path: str, dest: Path) -> bool:
 # ---------- public routes ----------
 
 async def handle_root(request: web.Request) -> web.Response:
-    # HEAD для healthcheck Ботхоста — отдаем 200 без тела, но с CORS
+    # HEAD для healthcheck сервера — отдаем 200 без тела, но с CORS
     if request.method == "HEAD":
         return web.Response(status=200, headers=dict(CORS_HEADERS))
 
@@ -129,7 +129,7 @@ async function load() {{
     const r = await fetch('/api/products', {{headers: headers()}});
     const j = await r.json();
     const cont = document.getElementById('products');
-    if(!j.ok){{ cont.innerHTML='Ошибка: '+(j.error||'unknown')+' <br><small>Проверь логи Ботхоста, БД должна создаться автоматически</small>'; return; }}
+    if(!j.ok){{ cont.innerHTML='Ошибка: '+(j.error||'unknown')+' <br><small>Проверь логи сервера, БД должна создаться автоматически</small>'; return; }}
     if(!j.products.length){{ cont.innerHTML='Товаров пока нет — добавь в админке /admin'; return; }}
     cont.innerHTML='';
     j.products.forEach(p=>{{
@@ -208,7 +208,7 @@ async def handle_products(request: web.Request) -> web.Response:
         return web.json_response({"ok": True, "products": out})
     except Exception as e:
         log.exception("handle_products failed: %s", e)
-        # Попытка авто-восстановления схемы (для Ботхоста где БД могла не создаться)
+        # Попытка авто-восстановления схемы (для сервера где БД могла не создаться)
         try:
             await db.ensure_schema()
             await db.init_db()
@@ -480,10 +480,8 @@ async def handle_admin_page(request: web.Request) -> web.Response:
             return web.Response(text=f"""
 <html><body style="font-family:sans-serif;background:#111;color:#fff;padding:24px">
 <h2>🔒 Админка</h2>
-<p>Укажи токен: /admin?admin_token=ВАШ_ТОКЕН</p>
-<p>Для минимального деплоя достаточно TONAPI_KEY + ADMIN_IDS — токен генерируется автоматически.</p>
+<p>Укажи токен (пароль): /admin?admin_token=ВАШ_ТОКЕН</p>
 {hint}
-<p>Задай ADMIN_PANEL_TOKEN в ENV на БотХосте для кастомного пароля.</p>
 </body></html>""", content_type="text/html", status=403)
 
     stats = await db.get_stats()
@@ -499,7 +497,7 @@ async def handle_admin_page(request: web.Request) -> web.Response:
 
     html = f"""
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Admin — vizitka</title>
+<title>Admin Panel</title>
 <style>
 body{{font-family:system-ui;background:#0f0f0f;color:#fff;padding:16px;max-width:900px;margin:0 auto}}
 .card{{background:#1e1e1e;border-radius:12px;padding:14px;margin:14px 0}}
@@ -508,20 +506,18 @@ input{{background:#111;color:#fff;border:1px solid #333;border-radius:8px;paddin
 .badge{{background:#333;padding:2px 8px;border-radius:6px;font-size:12px}}
 .ok{{color:#8aff8a}} .warn{{color:#ffb86c}} .err{{color:#ff6b6b}}
 </style></head><body>
-<h2>🔧 Админка vizitka — минимальный деплой: TONAPI_KEY + ADMIN_IDS</h2>
+<h2>🔧 Управление Клубом</h2>
 
 <div class="card">
 <b>📊 Статистика</b><br>
-Игроков: {stats['total_players']} · Оплачено: {stats['paid_orders']} · Выручка: {stats['revenue_gram']} GRAM / {stats['revenue_rub']} ₽
-<br>Payments mode: <b>{settings.payments_mode}</b> · TONAPI: <span class="{'ok' if settings.tonapi_configured else 'err'}">{'OK '+tonapi_key_display if settings.tonapi_configured else '— нет ключа'}</span> · GRAM API: {'OK' if settings.gram_configured else '—'}
-<br>Wallet ENV: {wallet_env or '—'}<br>Wallet DB/итог: <b>{wallet_display}</b> {'<span class=ok>✅</span>' if wallet_display!='— не задан —' else '<span class=err>❌ задай ниже</span>'}
-<br>PUBLIC_URL: {settings.public_url or '— (авто-детект)'} · Admin token: <code>{token}</code>
-<br><small>Минимальный деплой OK: достаточно TONAPI_KEY + ADMIN_IDS, остальное опционально. Токен админки сгенерирован как admin_{{ADMIN_IDS[0]}} если не задан.</small>
+Пользователей: {stats['total_players']} · Оплачено: {stats['paid_orders']} · Выручка: {stats['revenue_gram']} GRAM / {stats['revenue_rub']} ₽
+<br>Payments mode: <b>{settings.payments_mode}</b> · TONAPI: <span class="{'ok' if settings.tonapi_configured else 'err'}">{'OK '+tonapi_key_display if settings.tonapi_configured else '— нет ключа'}</span>
+<br>Кошелек (база): <b>{wallet_display}</b> {'<span class=ok>✅</span>' if wallet_display!='— не задан —' else '<span class=err>❌ задай ниже</span>'}
 </div>
 
 <div class="card">
-<b>💳 Настройка оплаты TONAPI (для минимального деплоя)</b><br>
-<small>Если ты задеплоил только с TONAPI_KEY + ADMIN_IDS, задай кошелек здесь — сохранится в БД и tonapi poll подхватит без редеплоя.</small><br><br>
+<b>💳 Привязка кошелька TON</b><br>
+<small>Укажи кошелек, на который будут поступать переводы.</small><br><br>
 <form onsubmit="setWallet(event)">
 <input id="wallet" placeholder="EQ... или UQ... твой TON кошелек" value="{wallet_db}" />
 <button class="btn" type="submit">💾 Сохранить кошелек</button>
@@ -537,17 +533,17 @@ async function setWallet(e){{
    const r=await fetch('/api/admin/settings/wallet?admin_token={token}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{wallet:w}})}});
    const j=await r.json();
    resDiv.textContent=j.ok ? '✅ Сохранено: '+j.wallet : '❌ Ошибка: '+(j.error||'unknown');
-   if(j.ok) location.reload();
+   if(j.ok) setTimeout(() => location.reload(), 1000);
  }}catch(err){{ resDiv.textContent='❌ '+err; }}
 }}
 </script>
 </div>
 
-<div class="card"><b>⏳ Pending заказы ({len(pending_orders)})</b><br>
+<div class="card"><b>⏳ Ожидающие заказы ({len(pending_orders)})</b><br>
 {''.join(f"<div style='margin:6px 0'>#{o['id']} @{o.get('username')} {o.get('title')} {o.get('amount_gram')} GRAM memo={o.get('pay_memo')} <a class='btn' href='/api/admin/orders/{o['id']}/approve?admin_token={token}'>✅ Approve</a> <a class='btn' href='/api/admin/orders/{o['id']}/check?admin_token={token}'>🔍 Check TONAPI</a></div>" for o in pending_orders) or 'нет'}
 </div>
 
-<div class="card"><b>👠 Новые сессии ({len(new_sessions)})</b><br>
+<div class="card"><b>👠 Новые заявки ({len(new_sessions)})</b><br>
 {''.join(f"<div>#{s['id']} @{s.get('username')} {s.get('kind')} {s.get('comment')[:80]}</div>" for s in new_sessions) or 'нет'}
 </div>
 
@@ -695,10 +691,10 @@ async def handle_api_404(request: web.Request) -> web.Response:
 
 async def handle_spa_fallback(request: web.Request) -> web.Response:
     """
-    Fallback для Ботхоста и Telegram Mini App:
+    Fallback для сервера и Telegram Mini App:
     - /api/*, /admin, /health, /ping → 404 JSON (не маскируем ошибки API)
     - всё остальное → отдаем витрину (200), чтобы не было 404/405
-    Это фиксит кейс когда Ботхост открывает /index.html или /app и получает 404/405.
+    Это фиксит кейс когда сервер открывает /index.html или /app и получает 404/405.
     """
     path = request.path.lower()
     # API и админка должны отдавать честный 404, не витрину
@@ -804,7 +800,7 @@ def create_app() -> web.Application:
 
     # SPA fallback — должен быть ПОСЛЕ всех конкретных роутов
     # Отдаем витрину на любые неизвестные GET, кроме /api/* (там 404 JSON)
-    # Это фиксит 404 на Ботхосте когда он открывает /app, /index.html, /webapp и т.д.
+    # Это фиксит 404 на сервере когда он открывает /app, /index.html, /webapp и т.д.
     app.router.add_get("/{tail:.*}", handle_spa_fallback)
 
     return app
@@ -853,13 +849,13 @@ async def run_web_app():
     runner = web.AppRunner(app)
     await runner.setup()
 
-    # Ботхост может давать PORT, а может ожидать 8080 или 3000
+    # сервер может давать PORT, а может ожидать 8080 или 3000
     # Собираем список портов для попытки бинда (80 убран — требует root)
     primary_port = settings.port
     candidate_ports = []
     # 1. Порт из настроек (из ENV PORT и т.д.)
     candidate_ports.append(primary_port)
-    # 2. Стандартные порты Ботхоста / PaaS — слушаем все, чтобы не было 404
+    # 2. Стандартные порты сервера / PaaS — слушаем все, чтобы не было 404
     for p in (8080, 3000, 8000, 5000, 3001, 8081):
         if p not in candidate_ports:
             candidate_ports.append(p)
@@ -924,7 +920,7 @@ async def run_web_app():
 
     primary_bound = any(p == primary_port for p, _ in sites)
     if not primary_bound:
-        log.warning("web: primary порт %s не забиндился, но забиндились %s — продолжаю (для Ботхоста это ок)", primary_port, [p for p, _ in sites])
+        log.warning("web: primary порт %s не забиндился, но забиндились %s — продолжаю (для сервера это ок)", primary_port, [p for p, _ in sites])
 
     log.info("web: витрина / | health /health | api /api/products | admin /admin?admin_token=... | bound ports=%s", [p for p, _ in sites])
 

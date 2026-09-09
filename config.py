@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Центральная конфигурация из ENV.
 
-Принципы (важно для Ботхоста):
+Принципы (важно для сервера):
 1. Импорт config.py НИКОГДА не падает из-за отсутствующих переменных.
-2. В панель Ботхоста вводятся ТОЛЬКО секреты (токены/ключи).
+2. В панель сервера вводятся ТОЛЬКО секреты (токены/ключи).
    Все не-секретные настройки зашиты в код — блок SITE_* в начале файла.
 3. Все значения читаются лениво через объект settings, у каждой
    переменной есть безопасный дефолт.
@@ -45,14 +45,14 @@ class FatalStartupError(RuntimeError):
 
 
 # ============================================================
-#  НЕ-СЕКРЕТНЫЕ настройки — живут В КОДЕ, в панель Ботхоста их
+#  НЕ-СЕКРЕТНЫЕ настройки — живут В КОДЕ, в панель сервера их
 #  вводить не нужно. Единственное, что обычно надо поменять
-#  вручную, — SITE_PUBLIC_URL: подставь адрес, который Ботхост
-#  выдаст проекту (например https://bot-123.bothost.ru), либо
+#  вручную, — SITE_PUBLIC_URL: подставь адрес, который сервер
+#  выдаст проекту (например https://my-bot.com), либо
 #  свой домен. ENV-переменные (если вдруг заданы) имеют приоритет
 #  и переопределяют значения ниже.
 # ============================================================
-SITE_PUBLIC_URL = "https://tvoy-bot.bothost.ru"  # ← ЗАМЕНИТЬ на реальный адрес
+SITE_PUBLIC_URL = "https://tvoy-bot.com"  # ← ЗАМЕНИТЬ на реальный адрес
 SITE_CONTACT_USERNAME = "milayaqueen"            # ТГ-юзернейм для связи, без @
 SITE_PAYMENT_LINK = "https://yoomoney.ru/to/4100119149767529"  # ссылка-фолбэк на оплату
 SITE_CHANNELS = ["chat_goddes"]                  # обязательные каналы
@@ -82,7 +82,7 @@ def _int(name: str, default: int) -> int:
 def _int_any(names: list[str], default: int) -> int:
     """Взять первый валидный int-порт из списка имен (для хостингов).
 
-    Улучшено для Ботхоста: перебирает много вариантов, логирует что нашел.
+    Улучшено для сервера: перебирает много вариантов, логирует что нашел.
     """
     for n in names:
         raw = (os.getenv(n) or "").strip()
@@ -176,7 +176,7 @@ class Settings:
 
     # ---- веб ----
     host: str = "0.0.0.0"        # HOST
-    port: int = 8080             # PORT (Ботхост обычно выставляет сам)
+    port: int = 8080             # PORT (сервер обычно выставляет сам)
     public_url: str = ""         # PUBLIC_URL — внешний https адрес сервиса
     webapp_url: str = ""         # WEBAPP_URL — адрес Mini App (по умолчанию PUBLIC_URL)
 
@@ -225,11 +225,11 @@ class Settings:
         db_path = _str("DB_PATH", "game.db")
         media_dir = _str("MEDIA_CACHE_DIR", "media_cache")
 
-        # PUBLIC_URL — авто-детект из популярных хостингов + Ботхост
-        # Ботхост может давать домен в разных переменных, пробуем все
+        # PUBLIC_URL — авто-детект из популярных хостингов + сервер
+        # сервер может давать домен в разных переменных, пробуем все
         public_url = _str_any([
-            "PUBLIC_URL", "WEBAPP_URL", "APP_URL", "BOTHOST_PUBLIC_URL",
-            "BOTHOST_URL", "BOTHOST_DOMAIN", "BOT_PUBLIC_URL", "BOT_URL",
+            "PUBLIC_URL", "WEBAPP_URL", "APP_URL",
+            "BOT_PUBLIC_URL", "BOT_URL",
             "RENDER_EXTERNAL_URL", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL",
             "HOST_URL", "BASE_URL", "EXTERNAL_URL", "KOYEB_PUBLIC_DOMAIN",
             "VERCEL_URL", "FLY_APP_NAME", "HEROKU_APP_NAME",
@@ -240,7 +240,7 @@ class Settings:
             if site_url and not _is_placeholder_url(site_url):
                 public_url = site_url
         if public_url and not public_url.startswith("http"):
-            # если это просто домен bot-123.bothost.ru — добавляем https
+            # если это просто домен bot-123.com — добавляем https
             public_url = "https://" + public_url
         webapp_url = _str("WEBAPP_URL", public_url).rstrip("/") or public_url
         if _is_placeholder_url(webapp_url):
@@ -264,15 +264,15 @@ class Settings:
         # TON кошелек — все варианты имен
         ton_wallet = _str_any(["TON_WALLET_ADDRESS", "GRAM_WALLET_ADDRESS", "WALLET_ADDRESS", "TON_WALLET"], "")
 
-        # HOST — всегда 0.0.0.0 для Ботхоста, но уважим ENV если там 0.0.0.0 или ::
-        host_env = _str_any(["HOST", "BOTHOST_HOST", "SERVER_HOST", "WEB_HOST", "HTTP_HOST"], "0.0.0.0")
-        # Если хост пустой или localhost — форсим 0.0.0.0 для Ботхоста
+        # HOST — всегда 0.0.0.0 для сервера, но уважим ENV если там 0.0.0.0 или ::
+        host_env = _str_any(["HOST", "SERVER_HOST", "WEB_HOST", "HTTP_HOST"], "0.0.0.0")
+        # Если хост пустой или localhost — форсим 0.0.0.0 для серверов
         if not host_env or host_env in ("127.0.0.1", "localhost"):
             host_env = "0.0.0.0"
 
-        # PORT — расширенный список для Ботхоста
+        # PORT — расширенный список
         port = _int_any([
-            "PORT", "BOTHOST_PORT", "SERVER_PORT", "HTTP_PORT", "APP_PORT", "WEB_PORT",
+            "PORT", "SERVER_PORT", "HTTP_PORT", "APP_PORT", "WEB_PORT",
             "EXTERNAL_PORT", "INTERNAL_PORT", "BOT_PORT", "WEBAPP_PORT",
         ], 8080)
 
@@ -371,7 +371,7 @@ def validate() -> list[str]:
     elif settings.admin_panel_token.startswith("admin_"):
         warns.append(f"ADMIN_PANEL_TOKEN авто: {settings.admin_panel_token} — /admin?admin_token=...")
     if (not settings.public_url or _is_placeholder_url(settings.public_url)) and settings.run_web:
-        warns.append("PUBLIC_URL пуст — вставь адрес из панели БотХоста в ENV PUBLIC_URL, иначе кнопка 🛍 ВИТРИНА не откроется.")
+        warns.append("PUBLIC_URL пуст — вставь адрес из панели сервера в ENV PUBLIC_URL, иначе кнопка 🛍 ВИТРИНА не откроется.")
     if not settings.webapp_url and settings.run_web:
         warns.append("WEBAPP_URL пуст — кнопка витрины в боте отключена, но веб (/ и /api/*) работает.")
     if settings.allow_dev_auth:
@@ -394,7 +394,7 @@ def log_startup_summary() -> None:
              (settings.ton_wallet_address or settings.gram_wallet_address or "—")[:12] + "…" if (settings.ton_wallet_address or settings.gram_wallet_address) else "— (задай через ENV или /admin)")
     log.info("admin_panel: token=%s", "OK" if settings.admin_panel_token else "—")
     log.info("db: %s", settings.db_path)
-    # Доп. лог для Ботхоста — покажем все PORT-переменные
+    # Доп. лог для сервера — покажем все PORT-переменные
     port_vars = {k: v for k, v in os.environ.items() if "PORT" in k.upper()}
     if port_vars:
         log.info("env PORT vars: %s", port_vars)

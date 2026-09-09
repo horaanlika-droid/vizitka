@@ -3,54 +3,292 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1"/>
-<title>Витрина — Богиня Мила</title>
+<title>Элитный Клуб — Привилегии</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Montserrat:wght@300;400;600&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0f0f0f;--card:#1e1e1e;--accent:#7c4dff;--text:#fff;--muted:#9aa0a6;--ok:#8aff8a}
+:root{
+  --bg: #050505;
+  --card: #0f0f0f;
+  --accent: #d4af37; /* Gold */
+  --accent-hover: #b5952f;
+  --text: #f0f0f0;
+  --muted: #888;
+  --border: #332b18;
+}
 *{box-sizing:border-box}
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:0}
-.container{max-width:720px;margin:0 auto;padding:16px}
-.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px}
-.header h1{font-size:22px;margin:0}
-.sub{opacity:.7;font-size:13px;margin-top:4px}
-.sub a{color:#8ab4ff;text-decoration:none}
-.card{background:var(--card);border-radius:16px;padding:14px;margin:12px 0;display:flex;gap:12px;align-items:center;box-shadow:0 2px 12px rgba(0,0,0,.2)}
-.card img{width:72px;height:72px;object-fit:cover;border-radius:12px;background:#333;flex-shrink:0}
-.price{color:var(--ok);font-weight:700;margin-top:6px}
-.btn{background:var(--accent);color:#fff;border:0;border-radius:12px;padding:10px 16px;font-weight:700;cursor:pointer;white-space:nowrap}
-.btn:disabled{opacity:.5;cursor:wait}
-.badge{font-size:11px;background:#333;padding:3px 8px;border-radius:999px;margin-left:6px}
-.muted{color:var(--muted);font-size:13px}
-#products{min-height:120px}
-.loader{padding:24px;text-align:center;opacity:.7}
-.err{background:#2a1a1a;border:1px solid #5a2a2a;border-radius:12px;padding:12px;margin:12px 0;color:#ffb4b4}
-.okbox{background:#1a2a1a;border:1px solid #2a5a2a;border-radius:12px;padding:12px;margin:12px 0;color:#b4ffb4}
-.footer{max-width:720px;margin:32px auto 0;opacity:.5;font-size:11px;text-align:center;padding:0 16px 24px}
-.footer a{color:#8ab4ff}
+body{
+  font-family: 'Montserrat', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+  padding: 0;
+  background-image: radial-gradient(circle at 50% 0%, #1a160c 0%, transparent 70%);
+  min-height: 100vh;
+}
+h1, h2, h3, .serif {
+  font-family: 'Playfair Display', serif;
+  font-weight: 400;
+}
+.container{
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+.header{
+  text-align: center;
+  margin-bottom: 40px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 24px;
+}
+.header h1{
+  font-size: 28px;
+  margin: 0 0 8px 0;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.sub{
+  font-size: 14px;
+  color: var(--muted);
+  font-weight: 300;
+  letter-spacing: 1px;
+}
+.sub a{
+  color: var(--accent);
+  text-decoration: none;
+  transition: color 0.3s;
+}
+.sub a:hover {
+  color: var(--text);
+}
+.card{
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  margin: 16px 0;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  transition: transform 0.3s, border-color 0.3s;
+}
+.card:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+.card img{
+  width: 90px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #111;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+.card-content {
+  flex: 1;
+  min-width: 0;
+}
+.card-title {
+  font-family: 'Playfair Display', serif;
+  font-size: 18px;
+  margin-bottom: 4px;
+  color: var(--accent);
+}
+.badge{
+  font-family: 'Montserrat', sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  background: #1a160c;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+  letter-spacing: 1px;
+  vertical-align: middle;
+}
+.price{
+  color: var(--text);
+  font-weight: 600;
+  margin-top: 12px;
+  font-size: 15px;
+  letter-spacing: 0.5px;
+}
+.btn{
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 400;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.3s;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+}
+.btn:disabled{
+  opacity: 0.5;
+  cursor: wait;
+  border-color: var(--muted);
+  color: var(--muted);
+}
+.muted{
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+#products{
+  min-height: 120px;
+}
+.loader{
+  padding: 40px;
+  text-align: center;
+  color: var(--accent);
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-size: 18px;
+  letter-spacing: 1px;
+}
+.msg-box{
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 4px;
+  padding: 16px;
+  margin: 16px 0;
+  text-align: center;
+  font-size: 14px;
+}
+.err { color: #d9534f; border-color: #5a2a2a; }
+.okbox { color: var(--accent); border-color: var(--accent); }
+
+.footer{
+  margin: 60px auto 20px;
+  opacity: 0.6;
+  font-size: 11px;
+  text-align: center;
+  padding: 0 16px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.footer a, .admin-login-btn {
+  color: var(--muted);
+  text-decoration: none;
+  margin: 0 8px;
+  transition: color 0.3s;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.footer a:hover, .admin-login-btn:hover {
+  color: var(--accent);
+}
+
+/* Modal styling for admin login */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.8);
+  z-index: 1000;
+  justify-content: center;
+  align-items: center;
+  backdrop-filter: blur(4px);
+}
+.modal-content {
+  background: var(--card);
+  border: 1px solid var(--accent);
+  padding: 32px;
+  border-radius: 4px;
+  width: 90%;
+  max-width: 360px;
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+}
+.modal-content h3 {
+  margin-top: 0;
+  color: var(--accent);
+  margin-bottom: 24px;
+}
+.modal-content input {
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: 'Montserrat', sans-serif;
+  border-radius: 4px;
+  outline: none;
+  transition: border-color 0.3s;
+}
+.modal-content input:focus {
+  border-color: var(--accent);
+}
+.modal-content .btn {
+  width: 100%;
+}
+.close-modal {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.close-modal:hover {
+  color: var(--text);
+}
 </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
-    <div>
-      <h1>🛍 Витрина Богини</h1>
-      <div class="sub"><span id="contact">Загрузка…</span> · <a id="contact_link" href="#" target="_blank">ЛС</a></div>
+    <h1>Привилегии Клуба</h1>
+    <div class="sub">
+      Ваш проводник: <span id="contact">загрузка...</span> <br><br>
+      <a id="contact_link" href="#" target="_blank">Связаться лично</a>
     </div>
-    <div id="user" class="muted"></div>
   </div>
 
   <div id="status"></div>
-  <div id="products"><div class="loader">Загрузка товаров…</div></div>
+  <div id="products"><div class="loader">Ожидайте, загружаем коллекцию...</div></div>
 </div>
 
 <div class="footer">
-  <a href="/health">health</a> · <a href="/api/config">config</a> · <a href="/api/products">products JSON</a> · <a href="/admin">admin</a><br>
-  <small>Если видишь 404 на Ботхосте — сделай Redeploy в панели, проверь PORT=8080 и HOST=0.0.0.0. Бот работает отдельно от веба.</small>
+  <button class="admin-login-btn" onclick="openAdminModal()">Доступ Администратора</button>
+</div>
+
+<!-- Admin Login Modal -->
+<div class="modal-overlay" id="adminModal">
+  <div class="modal-content">
+    <h3>Секретный Доступ</h3>
+    <p style="font-size: 13px; color: var(--muted); margin-bottom: 20px;">Введите пароль для входа в панель управления и привязки кошелька.</p>
+    <input type="password" id="adminPassword" placeholder="Пароль администратора" onkeydown="if(event.key==='Enter') loginAdmin()">
+    <button class="btn" onclick="loginAdmin()">Войти</button>
+    <div class="close-modal" onclick="closeAdminModal()">Отмена</div>
+  </div>
 </div>
 
 <script>
 const tg = window.Telegram?.WebApp;
-if(tg){ try{ tg.ready(); tg.expand(); }catch(e){} }
+if(tg){ try{ tg.ready(); tg.expand(); tg.setHeaderColor('#050505'); tg.setBackgroundColor('#050505'); }catch(e){} }
 
 let initData = tg?.initData || new URLSearchParams(location.search).get('initData') || '';
 
@@ -60,14 +298,12 @@ function headers(){
   return h;
 }
 
-function showErr(msg){
+function showMsg(msg, isError=true){
   const s=document.getElementById('status');
-  s.innerHTML=`<div class="err">⚠️ ${msg}<br><small>Открой <a href="/api/products">/api/products</a> и <a href="/api/config">/api/config</a> для диагностики</small></div>`;
-}
-function showOk(msg){
-  const s=document.getElementById('status');
-  s.innerHTML=`<div class="okbox">✅ ${msg}</div>`;
-  setTimeout(()=>{ s.innerHTML=''; }, 4000);
+  s.innerHTML=`<div class="msg-box ${isError ? 'err' : 'okbox'}">${msg}</div>`;
+  if(!isError){
+    setTimeout(()=>{ s.innerHTML=''; }, 5000);
+  }
 }
 
 async function loadConfig(){
@@ -75,16 +311,16 @@ async function loadConfig(){
     const r=await fetch('/api/config');
     const j=await r.json();
     if(j.ok){
-      const uname=j.contact_username||'milayaqueen';
+      const uname=j.contact_username||'eliteclub';
       document.getElementById('contact').textContent='@'+uname;
       const link=document.getElementById('contact_link');
       link.href='https://t.me/'+uname;
-      link.textContent='ЛС Богини';
+      link.textContent='Личные сообщения';
       return j;
     }
   }catch(e){}
-  document.getElementById('contact').textContent='@milayaqueen';
-  document.getElementById('contact_link').href='https://t.me/milayaqueen';
+  document.getElementById('contact').textContent='@eliteclub';
+  document.getElementById('contact_link').href='https://t.me/eliteclub';
   return null;
 }
 
@@ -93,16 +329,16 @@ async function loadProducts(){
   try{
     const r=await fetch('/api/products', {headers: headers()});
     if(!r.ok){
-      cont.innerHTML=`<div class="err">Ошибка API: ${r.status} ${r.statusText}<br>Проверь логи Ботхоста — БД должна создаться автоматически при старте (init_db).</div>`;
+      cont.innerHTML=`<div class="msg-box err">Сервис временно недоступен. Пожалуйста, обратитесь к администратору.</div>`;
       return;
     }
     const j=await r.json();
     if(!j.ok){
-      cont.innerHTML=`<div class="err">Ошибка: ${j.error||'unknown'}<br>${j.details||''}</div>`;
+      cont.innerHTML=`<div class="msg-box err">Произошла ошибка при загрузке привилегий.</div>`;
       return;
     }
     if(!j.products || !j.products.length){
-      cont.innerHTML=`<div class="muted" style="padding:16px">Товаров пока нет. Добавь их в <a href="/admin">админке</a> или через бота.<br><small>Если ты на Ботхосте и только задеплоил — товары сидятся автоматически (9 штук) при первом запуске init_db.</small></div>`;
+      cont.innerHTML=`<div class="msg-box">Коллекция привилегий в данный момент обновляется.</div>`;
       return;
     }
     cont.innerHTML='';
@@ -110,49 +346,71 @@ async function loadProducts(){
       const price=(p.price_gram? p.price_gram+' GRAM ' : '')+(p.price_rub? p.price_rub+' ₽':'');
       const img=p.photo_file_id? `/api/media/${p.photo_file_id}` : (p.photo_url||'');
       const el=document.createElement('div'); el.className='card';
-      el.innerHTML=`<img src="${img}" onerror="this.style.display='none'"><div style="flex:1;min-width:0"><div><b>#${p.id} ${p.title||'Без названия'}</b><span class="badge">${p.category||'general'}</span></div><div class="muted" style="margin:4px 0;white-space:pre-wrap;word-break:break-word">${(p.description||'').slice(0,300)}</div><div class="price">${price||'цена не указана'}</div></div><button class="btn" onclick="order(${p.id}, this)">Купить</button>`;
+      el.innerHTML=`
+        <img src="${img}" onerror="this.style.display='none'">
+        <div class="card-content">
+          <div class="card-title">${p.title||'Привилегия'}<span class="badge">${p.category||'эксклюзив'}</span></div>
+          <div class="muted" style="margin:8px 0;white-space:pre-wrap;word-break:break-word">${(p.description||'').slice(0,300)}</div>
+          <div class="price">${price||'По запросу'}</div>
+        </div>
+        <button class="btn" onclick="order(${p.id}, this)">Оформить</button>
+      `;
       cont.appendChild(el);
     });
   }catch(e){
-    cont.innerHTML=`<div class="err">Ошибка загрузки: ${e}<br>Открой /api/products напрямую. Если 500 — нужен Redeploy на Ботхосте (БД не создалась).</div>`;
+    cont.innerHTML=`<div class="msg-box err">Не удалось подключиться к серверу. Попробуйте позже.</div>`;
   }
 }
 
 async function order(id, btn){
-  const orig=btn?btn.textContent:'Купить';
-  if(btn){ btn.disabled=true; btn.textContent='...'; }
+  const orig=btn?btn.textContent:'Оформить';
+  if(btn){ btn.disabled=true; btn.textContent='Подождите...'; }
   try{
     const r=await fetch('/api/orders/create', {method:'POST', headers: headers(), body: JSON.stringify({product_id:id})});
     const j=await r.json();
     if(!j.ok){
       if(j.error==='auth_required'){
-        alert('Открой витрину через Telegram: кнопка 🛍 ВИТРИНА в боте. Или включи ALLOW_DEV_AUTH=1 для теста.');
+        alert('Для оформления заказа, пожалуйста, откройте витрину через нашего Telegram-бота.');
       }else{
-        alert('Ошибка: '+(j.error||'unknown')+' '+(j.details||''));
+        alert('Извините, произошла ошибка при оформлении: '+(j.error||'Неизвестная ошибка'));
       }
       return;
     }
-    let txt=`Заказ #${j.order.id}\nСумма: ${j.order.amount_gram||j.order.amount_rub} ${j.invoice.mode}\nМемо: ${j.order.pay_memo}\n`;
-    if(j.invoice.pay_url) txt+=`Ссылка: ${j.invoice.pay_url}\n`;
-    if(j.invoice.address) txt+=`Адрес: ${j.invoice.address}\nМемо: ${j.invoice.memo}\n`;
+    let txt=`Ваша заявка #${j.order.id} успешно сформирована.\nК оплате: ${j.order.amount_gram||j.order.amount_rub} ${j.invoice.mode}\nКомментарий к платежу: ${j.order.pay_memo}\n`;
+    if(j.invoice.pay_url) txt+=`Ссылка для оплаты: ${j.invoice.pay_url}\n`;
+    if(j.invoice.address) txt+=`Адрес кошелька: ${j.invoice.address}\nОбязательно укажите комментарий: ${j.invoice.memo}\n`;
     if(j.invoice.note) txt+=`\n${j.invoice.note}`;
     alert(txt);
     if(j.invoice.pay_url) window.open(j.invoice.pay_url, '_blank');
-    showOk(`Заказ #${j.order.id} создан, мемо ${j.order.pay_memo}`);
+    showMsg(`Заявка #${j.order.id} принята. Ожидаем оплату.`, false);
   }catch(e){
-    alert('Ошибка: '+e);
+    alert('Произошла ошибка при связи с сервером.');
   }finally{
     if(btn){ btn.disabled=false; btn.textContent=orig; }
   }
 }
 
+// Admin Modal Logic
+function openAdminModal() {
+  document.getElementById('adminModal').style.display = 'flex';
+  document.getElementById('adminPassword').focus();
+}
+
+function closeAdminModal() {
+  document.getElementById('adminModal').style.display = 'none';
+  document.getElementById('adminPassword').value = '';
+}
+
+function loginAdmin() {
+  const pwd = document.getElementById('adminPassword').value.trim();
+  if(!pwd) return;
+  // Redirect to the admin dashboard with the token
+  window.location.href = '/admin?admin_token=' + encodeURIComponent(pwd);
+}
+
 (async()=>{
   await loadConfig();
   await loadProducts();
-  if(tg?.initDataUnsafe?.user){
-    const u=tg.initDataUnsafe.user;
-    document.getElementById('user').textContent='@'+(u.username||u.first_name||u.id);
-  }
 })();
 </script>
 </body>

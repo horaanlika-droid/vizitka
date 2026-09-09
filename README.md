@@ -3,9 +3,9 @@
 Бот-витрина (Telegram) + веб (Mini App / лендинг) + админ-бот.
 Запуск: `python main.py` — aiogram polling + aiohttp веб + TONAPI проверка в одном процессе.
 
-## Деплой на Ботхост — минимальный набор: TONAPI_KEY + ADMIN_IDS
+## Деплой — минимальный набор: TONAPI_KEY + ADMIN_IDS
 
-В панель Ботхоста достаточно ввести 2 переменные:
+В панель достаточно ввести 2 переменные:
 
 ```ini
 TONAPI_KEY=твой_ключ_с_tonapi.io
@@ -14,7 +14,7 @@ ADMIN_IDS=123456789
 
 Остальное опционально и подхватывается автоматически:
 - `ADMIN_PANEL_TOKEN` генерится как `admin_{ADMIN_IDS}` если пусто → `/admin?admin_token=admin_123456789`
-- `PUBLIC_URL` авто-детектится из `RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN`, `BOTHOST_PUBLIC_URL` и т.д.
+- `PUBLIC_URL` авто-детектится из `RENDER_EXTERNAL_URL`, `RAILWAY_PUBLIC_DOMAIN` и т.д.
 - `TON_WALLET_ADDRESS` можно задать позже через `/admin` без редеплоя (сохраняется в БД)
 - `BOT_TOKEN` / `ADMIN_BOT_TOKEN` — если пусто, боты отключаются, веб продолжает работать
 
