@@ -36,7 +36,25 @@ TONAPI_TIMEOUT = 20
 
 
 def is_configured() -> bool:
+    # Для минимального деплоя достаточно TONAPI_KEY — кошелек может быть в БД
     return settings.tonapi_configured
+
+
+async def _wallet_async() -> str:
+    """Асинхронно получить кошелек: ENV -> БД -> пусто."""
+    try:
+        # сначала пробуем из БД (если ENV пусто, там может быть сохраненный)
+        w = await db.get_wallet_address()
+        if w:
+            return w
+    except Exception:
+        pass
+    return (settings.ton_wallet_address or settings.gram_wallet_address or "").strip()
+
+
+def _wallet() -> str:
+    # синхронная версия для логов — только ENV
+    return (settings.ton_wallet_address or settings.gram_wallet_address or "").strip()
 
 
 def _headers() -> dict[str, str]:
@@ -44,10 +62,6 @@ def _headers() -> dict[str, str]:
     if settings.tonapi_key:
         h["Authorization"] = f"Bearer {settings.tonapi_key}"
     return h
-
-
-def _wallet() -> str:
-    return (settings.ton_wallet_address or settings.gram_wallet_address or "").strip()
 
 
 async def _get(path: str, params: dict | None = None) -> tuple[bool, Any]:
@@ -71,8 +85,9 @@ async def _get(path: str, params: dict | None = None) -> tuple[bool, Any]:
 
 async def fetch_recent_transactions(limit: int = 100) -> list[dict]:
     """Получить последние транзакции кошелька через TONAPI."""
-    wallet = _wallet()
+    wallet = await _wallet_async()
     if not wallet:
+        log.debug("tonapi: кошелек не задан — пропускаю fetch")
         return []
     # Основной endpoint: /v2/accounts/{account_id}/transactions
     ok, data = await _get(f"/v2/accounts/{wallet}/transactions", {"limit": min(limit, 100)})
@@ -272,17 +287,29 @@ async def verify_order(order: dict) -> dict:
 async def tonapi_poll_loop():
     """Фоновая задача: каждые N секунд проверять pending заказы."""
     if not is_configured():
-        log.info("tonapi poll: не настроен (TONAPI_KEY или кошелек пуст) — пропускаю")
+        log.info("tonapi poll: TONAPI_KEY пуст — пропускаю (достаточно TONAPI_KEY + ADMIN_IDS для минимального деплоя)")
         return
     interval = max(10, settings.tonapi_check_interval)
-    log.info("tonapi poll: старт, интервал %s сек, кошелек %s", interval, _wallet()[:12] + "…")
+    # кошелек может быть в БД, пробуем получить
+    wallet = await _wallet_async()
+    if not wallet:
+        log.warning("tonapi poll: TONAPI_KEY есть, но кошелек не задан ни в ENV ни в БД — жду пока задашь через /admin или ENV TON_WALLET_ADDRESS")
+        # все равно запускаем цикл, но будем проверять наличие кошелька каждую итерацию
+        log.info("tonapi poll: старт в режиме ожидания кошелька, интервал %s сек", interval)
+    else:
+        log.info("tonapi poll: старт, интервал %s сек, кошелек %s", interval, wallet[:12] + "…")
     while True:
         try:
             await asyncio.sleep(interval)
+            # перепроверяем кошелек на каждой итерации — может появиться в БД
+            wallet_now = await _wallet_async()
+            if not wallet_now:
+                log.debug("tonapi poll: кошелек все еще не задан — пропускаю проверку")
+                continue
             pending = await db.list_orders(status="pending", limit=50)
             if not pending:
                 continue
-            log.info("tonapi poll: проверяю %s pending заказов", len(pending))
+            log.info("tonapi poll: проверяю %s pending заказов (кошелек %s)", len(pending), wallet_now[:12] + "…")
             for order in pending:
                 try:
                     res = await verify_order(order)

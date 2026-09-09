@@ -34,6 +34,15 @@ def _str(name: str, default: str = "") -> str:
     return (os.getenv(name, default) or default).strip()
 
 
+def _str_any(names: list[str], default: str = "") -> str:
+    """Взять первую непустую переменную из списка имен."""
+    for n in names:
+        v = (os.getenv(n, "") or "").strip()
+        if v:
+            return v
+    return default
+
+
 def _int(name: str, default: int) -> int:
     try:
         return int((os.getenv(name) or "").strip() or default)
@@ -137,15 +146,43 @@ class Settings:
     def load(cls) -> "Settings":
         db_path = _str("DB_PATH", "game.db")
         media_dir = _str("MEDIA_CACHE_DIR", "media_cache")
-        public_url = _str("PUBLIC_URL", "").rstrip("/")
+        # PUBLIC_URL — пробуем авто-детект из популярных хостингов (БотХост, Render, Railway и т.д.)
+        public_url = _str_any([
+            "PUBLIC_URL", "WEBAPP_URL", "APP_URL", "BOTHOST_PUBLIC_URL",
+            "RENDER_EXTERNAL_URL", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL",
+            "HOST_URL", "BASE_URL", "EXTERNAL_URL"
+        ], "").rstrip("/")
+        # Railway дает домен без https
+        if public_url and not public_url.startswith("http"):
+            public_url = "https://" + public_url
+        # WEBAPP_URL отдельно, если не задан — = PUBLIC_URL
+        webapp_url = _str("WEBAPP_URL", public_url).rstrip("/") or public_url
+
+        # Токены: ADMIN_BOT_TOKEN fallback на BOT_TOKEN, чтобы хватило одного токена
+        bot_token = _str("BOT_TOKEN")
+        admin_bot_token = _str("ADMIN_BOT_TOKEN") or bot_token
+
+        # ADMIN_PANEL_TOKEN — если пусто, генерим из ADMIN_IDS, чтобы работал /admin без доп. настроек
+        admin_panel_token = _str("ADMIN_PANEL_TOKEN")
+        admin_ids_raw = _str("ADMIN_IDS", "1896036065")
+        # если токен пуст, но есть ADMIN_IDS — сгенерим дефолтный, чтобы админка не была закрыта
+        if not admin_panel_token and admin_ids_raw:
+            # берем первый id как токен — просто и запоминается
+            first_id = admin_ids_raw.split(",")[0].strip().replace(";", "")[:20]
+            if first_id:
+                admin_panel_token = f"admin_{first_id}"
+
+        # TON кошелек — пробуем все варианты имен
+        ton_wallet = _str_any(["TON_WALLET_ADDRESS", "GRAM_WALLET_ADDRESS", "WALLET_ADDRESS", "TON_WALLET"], "")
+
         return cls(
-            bot_token=_str("BOT_TOKEN"),
-            admin_bot_token=_str("ADMIN_BOT_TOKEN"),
+            bot_token=bot_token,
+            admin_bot_token=admin_bot_token,
             admin_ids=_int_list("ADMIN_IDS", [1896036065]),
             host=_str("HOST", "0.0.0.0"),
             port=_int("PORT", 8080),
             public_url=public_url,
-            webapp_url=_str("WEBAPP_URL", public_url).rstrip("/"),
+            webapp_url=webapp_url,
             db_path=str((PROJECT_ROOT / db_path).resolve()) if not os.path.isabs(db_path) else db_path,
             media_cache_dir=str((PROJECT_ROOT / media_dir).resolve()) if not os.path.isabs(media_dir) else media_dir,
             contact_username=_str("CONTACT_USERNAME", "milayaqueen").lstrip("@"),
@@ -155,17 +192,17 @@ class Settings:
             gram_api_base_url=_str("GRAM_API_BASE_URL", "").rstrip("/"),
             gram_api_key=_str("GRAM_API_KEY", "") or _str("TONAPI_KEY", ""),
             gram_merchant_id=_str("GRAM_MERCHANT_ID", ""),
-            gram_wallet_address=_str("GRAM_WALLET_ADDRESS", "") or _str("TON_WALLET_ADDRESS", ""),
+            gram_wallet_address=_str("GRAM_WALLET_ADDRESS", "") or ton_wallet,
             gram_webhook_secret=_str("GRAM_WEBHOOK_SECRET", ""),
             gram_create_path=_str("GRAM_CREATE_PATH", "/invoices"),
             gram_status_path=_str("GRAM_STATUS_PATH", "/invoices/{id}"),
             gram_rub_rate=_float("GRAM_RUB_RATE", 0.0),
             tonapi_key=_str("TONAPI_KEY", "") or _str("GRAM_API_KEY", ""),
             tonapi_base_url=_str("TONAPI_BASE_URL", "https://tonapi.io").rstrip("/"),
-            ton_wallet_address=_str("TON_WALLET_ADDRESS", "") or _str("GRAM_WALLET_ADDRESS", ""),
+            ton_wallet_address=ton_wallet,
             gram_jetton_master=_str("GRAM_JETTON_MASTER", ""),
             tonapi_check_interval=_int("TONAPI_CHECK_INTERVAL", 30),
-            admin_panel_token=_str("ADMIN_PANEL_TOKEN", ""),
+            admin_panel_token=admin_panel_token,
             run_web=_bool("RUN_WEB", True),
             run_client_bot=_bool("RUN_CLIENT_BOT", True),
             run_admin_bot=_bool("RUN_ADMIN_BOT", True),
@@ -181,20 +218,31 @@ class Settings:
 
     @property
     def tonapi_configured(self) -> bool:
-        """True, если TONAPI ключ и кошелек заданы — можно проверять платежи напрямую."""
+        """True, если TONAPI ключ задан — для минимального деплоя достаточно только ключа.
+        Кошелек может быть задан позже через админку /admin или ENV."""
+        # Для совместимости: раньше требовали кошелек, теперь достаточно ключа
+        # poll loop сам проверит наличие кошелька в ENV или БД
+        return bool(self.tonapi_key)
+
+    @property
+    def tonapi_wallet_configured(self) -> bool:
+        """True, если и ключ и кошелек заданы — можно сразу проверять блокчейн."""
         wallet = self.ton_wallet_address or self.gram_wallet_address
         return bool(self.tonapi_key and wallet)
 
     @property
     def payments_mode(self) -> str:
-        """Итоговый режим оплаты: 'gram' или 'manual'."""
+        """Итоговый режим оплаты: 'gram' / 'tonapi' / 'manual'."""
         if self.payments_provider == "gram":
             return "gram"
+        if self.payments_provider == "tonapi":
+            return "tonapi"
         if self.payments_provider == "manual":
             return "manual"
         if self.gram_configured:
             return "gram"
-        # если есть TONAPI — тоже считаем не совсем manual, но с автопроверкой
+        # если есть TONAPI ключ — считаем tonapi режимом, даже если кошелек пока не задан
+        # (кошелек можно задать позже через /admin)
         if self.tonapi_configured:
             return "tonapi"
         return "manual"
@@ -210,44 +258,56 @@ CONTACT: str = "@" + settings.contact_username
 
 
 def validate() -> list[str]:
-    """Проверка окружения. Возвращает список предупреждений (не падает)."""
+    """Проверка окружения. Возвращает список предупреждений (не падает).
+    Для минимального деплоя достаточно TONAPI_KEY + ADMIN_IDS — всё остальное опционально.
+    """
     warns: list[str] = []
     if settings.run_client_bot and not settings.bot_token:
         warns.append("BOT_TOKEN пуст — клиентский бот не запустится (веб продолжит работать).")
     if settings.run_admin_bot and not settings.admin_bot_token:
-        warns.append("ADMIN_BOT_TOKEN пуст — админ-бот не запустится.")
+        warns.append("ADMIN_BOT_TOKEN пуст — админ-бот не запустится (используй BOT_TOKEN как fallback).")
     if not settings.admin_ids:
         warns.append("ADMIN_IDS пуст — админ-функции недоступны.")
     if settings.payments_mode == "manual":
         if settings.payments_provider == "gram" and not settings.gram_configured:
             warns.append("PAYMENTS_PROVIDER=gram, но GRAM_API_* не заданы — оплата упадёт в ручной режим.")
         else:
-            warns.append("GRAM API не настроен — оплата в ручном режиме (подтверждение через админ-бота).")
+            warns.append("Оплата в ручном режиме (подтверждение через админ-бота /admin).")
     elif settings.payments_mode == "tonapi":
         if not settings.tonapi_configured:
-            warns.append("TONAPI_KEY или TON_WALLET_ADDRESS не заданы — автопроверка не работает.")
+            warns.append("TONAPI_KEY не задан — автопроверка не работает.")
+        elif not settings.tonapi_wallet_configured:
+            warns.append("TONAPI_KEY есть, но TON_WALLET_ADDRESS пуст — задай кошелек в ENV или через /admin (настройки оплаты).")
         else:
             warns.append("TONAPI режим: оплата проверяется напрямую по блокчейну (мемо + сумма).")
     if not settings.admin_panel_token:
         warns.append("ADMIN_PANEL_TOKEN пуст — веб-админка (/admin) отключена.")
+    else:
+        # если токен сгенерирован автоматически — подскажем
+        if settings.admin_panel_token.startswith("admin_"):
+            warns.append(f"ADMIN_PANEL_TOKEN сгенерирован автоматически: {settings.admin_panel_token} — используй его для /admin?admin_token=...")
     if not settings.public_url and settings.run_web:
-        warns.append("PUBLIC_URL пуст — webhook оплаты и WebApp-кнопка могут не работать, задай внешний адрес.")
+        warns.append("PUBLIC_URL пуст — авто-детект не сработал, WebApp-кнопка может не работать. Задай PUBLIC_URL если есть.")
     if settings.allow_dev_auth:
         warns.append("ALLOW_DEV_AUTH=1 — включён тестовый вход в веб БЕЗ Telegram! Выключи на проде.")
+    # подсказка для минимального деплоя
+    if settings.tonapi_key and settings.admin_ids:
+        warns.append("Минимальный деплой OK: достаточно TONAPI_KEY + ADMIN_IDS, остальное опционально.")
     return warns
 
 
 def log_startup_summary() -> None:
     log.info("=== vizitka config ===")
     log.info("web: run=%s %s:%s public=%s", settings.run_web, settings.host, settings.port,
-             settings.public_url or "—")
+             settings.public_url or "— (авто-детект)")
     log.info("client_bot: run=%s token=%s", settings.run_client_bot, "OK" if settings.bot_token else "—")
     log.info("admin_bot: run=%s token=%s admins=%s", settings.run_admin_bot,
              "OK" if settings.admin_bot_token else "—", settings.admin_ids or "—")
     log.info("payments: mode=%s gram_api=%s tonapi=%s wallet=%s", settings.payments_mode,
              "OK" if settings.gram_configured else "—",
              "OK" if settings.tonapi_configured else "—",
-             (settings.ton_wallet_address or settings.gram_wallet_address or "—")[:12] + "…")
+             (settings.ton_wallet_address or settings.gram_wallet_address or "—")[:12] + "…" if (settings.ton_wallet_address or settings.gram_wallet_address) else "— (задай через ENV или /admin)")
+    log.info("admin_panel: token=%s", "OK" if settings.admin_panel_token else "—")
     log.info("db: %s", settings.db_path)
     for w in validate():
         log.warning("config: %s", w)

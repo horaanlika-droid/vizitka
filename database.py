@@ -47,6 +47,8 @@ __all__ = [
     "db_add_review", "db_list_reviews", "db_delete_review",
     # курс
     "get_gram_rate", "set_gram_rate",
+    # общие настройки (для минимального деплоя)
+    "get_setting", "set_setting", "get_wallet_address", "set_wallet_address",
 ]
 
 _lock = asyncio.Lock()
@@ -676,3 +678,31 @@ async def gram_price_for(product: dict[str, Any]) -> float | None:
         if rate > 0:
             return round(float(product["price_rub"]) / rate, 4)
     return None
+
+
+# ---------- общие настройки (для минимального деплоя TONAPI_KEY + ADMIN_IDS) ----------
+
+async def get_setting(key: str) -> str:
+    row = await _fetchone("SELECT value FROM settings WHERE key = ?", (key,))
+    return str(row["value"]) if row and row["value"] is not None else ""
+
+
+async def set_setting(key: str, value: str) -> None:
+    await _exec("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
+
+
+async def get_wallet_address() -> str:
+    """Кошелек для TONAPI: сначала ENV, потом БД, потом пусто."""
+    env_wallet = (settings.ton_wallet_address or settings.gram_wallet_address or "").strip()
+    if env_wallet:
+        return env_wallet
+    db_wallet = await get_setting("ton_wallet_address") or await get_setting("gram_wallet_address")
+    return db_wallet.strip()
+
+
+async def set_wallet_address(address: str) -> None:
+    address = (address or "").strip()
+    if not address:
+        return
+    await set_setting("ton_wallet_address", address)
+    await set_setting("gram_wallet_address", address)

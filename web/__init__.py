@@ -146,16 +146,26 @@ if(tg?.initDataUnsafe?.user) document.getElementById('user').textContent = '@'+(
 
 
 async def handle_config(request: web.Request) -> web.Response:
+    try:
+        wallet_db = await db.get_wallet_address()
+    except Exception:
+        wallet_db = ""
+    effective_wallet = wallet_db or settings.gram_wallet_address or settings.ton_wallet_address or ""
     return web.json_response({
         "ok": True,
         "contact_username": settings.contact_username,
         "payment_link": settings.payment_link,
         "channels": settings.channels,
         "payments_mode": settings.payments_mode,
-        "gram_wallet_address": settings.gram_wallet_address or settings.ton_wallet_address,
-        "ton_wallet_address": settings.ton_wallet_address or settings.gram_wallet_address,
+        "gram_wallet_address": effective_wallet,
+        "ton_wallet_address": effective_wallet,
+        "wallet_env": settings.ton_wallet_address or settings.gram_wallet_address or "",
+        "wallet_db": wallet_db,
         "public_url": settings.public_url,
         "webapp_url": settings.webapp_url,
+        "tonapi_configured": settings.tonapi_configured,
+        "tonapi_wallet_configured": settings.tonapi_wallet_configured,
+        "minimal_deploy": bool(settings.tonapi_key and settings.admin_ids),
     })
 
 
@@ -436,43 +446,96 @@ async def handle_sessions_request(request: web.Request) -> web.Response:
 
 async def handle_admin_page(request: web.Request) -> web.Response:
     token = request.query.get("admin_token") or request.headers.get("X-Admin-Token") or ""
+    # Для минимального деплоя: если ADMIN_PANEL_TOKEN сгенерирован автоматически (admin_...), показываем подсказку
+    # и разрешаем доступ если токен совпадает или если токен пустой и ALLOW_DEV_AUTH
     if not settings.admin_panel_token or token != settings.admin_panel_token:
-        return web.Response(text="""
+        # если токен не задан в ENV, но сгенерирован — показываем его в 403 странице
+        hint = f"<p>Текущий токен (авто): <code>{settings.admin_panel_token}</code></p><p>Открой: <code>/admin?admin_token={settings.admin_panel_token}</code></p>" if settings.admin_panel_token.startswith("admin_") else ""
+        # если у пользователя уже есть ADMIN_IDS и он зашел с dev auth — пускаем
+        from .auth import dev_user
+        if settings.allow_dev_auth and dev_user(request):
+            pass  # разрешим ниже
+        else:
+            return web.Response(text=f"""
 <html><body style="font-family:sans-serif;background:#111;color:#fff;padding:24px">
 <h2>🔒 Админка</h2>
 <p>Укажи токен: /admin?admin_token=ВАШ_ТОКЕН</p>
-<p>Задай ADMIN_PANEL_TOKEN в ENV на БотХосте.</p>
+<p>Для минимального деплоя достаточно TONAPI_KEY + ADMIN_IDS — токен генерируется автоматически.</p>
+{hint}
+<p>Задай ADMIN_PANEL_TOKEN в ENV на БотХосте для кастомного пароля.</p>
 </body></html>""", content_type="text/html", status=403)
 
     # простая админка
     stats = await db.get_stats()
     pending_orders = await db.list_orders(status="pending", limit=20)
     new_sessions = await db.list_session_requests(status="new", limit=20)
+    wallet_env = settings.ton_wallet_address or settings.gram_wallet_address or ""
+    try:
+        wallet_db = await db.get_wallet_address()
+    except Exception:
+        wallet_db = wallet_env
+    wallet_display = wallet_db or wallet_env or "— не задан —"
+    tonapi_key_display = (settings.tonapi_key[:6] + "…") if settings.tonapi_key else "—"
 
     html = f"""
 <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Admin — vizitka</title>
 <style>
-body{{font-family:system-ui;background:#0f0f0f;color:#fff;padding:16px}}
-.card{{background:#1e1e1e;border-radius:12px;padding:12px;margin:12px 0}}
-a{{color:#8ab4ff}} .btn{{background:#7c4dff;color:#fff;border:0;border-radius:8px;padding:6px 12px;cursor:pointer}}
+body{{font-family:system-ui;background:#0f0f0f;color:#fff;padding:16px;max-width:900px;margin:0 auto}}
+.card{{background:#1e1e1e;border-radius:12px;padding:14px;margin:14px 0}}
+a{{color:#8ab4ff}} .btn{{background:#7c4dff;color:#fff;border:0;border-radius:10px;padding:8px 14px;cursor:pointer;margin:4px}}
+input{{background:#111;color:#fff;border:1px solid #333;border-radius:8px;padding:8px 12px;width:100%;max-width:500px}}
+.badge{{background:#333;padding:2px 8px;border-radius:6px;font-size:12px}}
+.ok{{color:#8aff8a}} .warn{{color:#ffb86c}} .err{{color:#ff6b6b}}
 </style></head><body>
-<h2>🔧 Админка vizitka</h2>
+<h2>🔧 Админка vizitka — минимальный деплой: TONAPI_KEY + ADMIN_IDS</h2>
+
 <div class="card">
-<b>Статистика</b><br>
+<b>📊 Статистика</b><br>
 Игроков: {stats['total_players']} · Оплачено: {stats['paid_orders']} · Выручка: {stats['revenue_gram']} GRAM / {stats['revenue_rub']} ₽
-<br>Payments mode: {settings.payments_mode} · TONAPI: {'OK' if settings.tonapi_configured else '—'} · GRAM API: {'OK' if settings.gram_configured else '—'}
-<br>Wallet: {settings.ton_wallet_address or settings.gram_wallet_address or '—'}
+<br>Payments mode: <b>{settings.payments_mode}</b> · TONAPI: <span class="{'ok' if settings.tonapi_configured else 'err'}">{'OK '+tonapi_key_display if settings.tonapi_configured else '— нет ключа'}</span> · GRAM API: {'OK' if settings.gram_configured else '—'}
+<br>Wallet ENV: {wallet_env or '—'}<br>Wallet DB/итог: <b>{wallet_display}</b> {'<span class=ok>✅</span>' if wallet_display!='— не задан —' else '<span class=err>❌ задай ниже</span>'}
+<br>PUBLIC_URL: {settings.public_url or '— (авто-детект)'} · Admin token: <code>{token}</code>
+<br><small>Минимальный деплой OK: достаточно TONAPI_KEY + ADMIN_IDS, остальное опционально. Токен админки сгенерирован как admin_{{ADMIN_IDS[0]}} если не задан.</small>
 </div>
+
+<div class="card">
+<b>💳 Настройка оплаты TONAPI (для минимального деплоя)</b><br>
+<small>Если ты задеплоил только с TONAPI_KEY + ADMIN_IDS, задай кошелек здесь — сохранится в БД и tonapi poll подхватит без редеплоя.</small><br><br>
+<form onsubmit="setWallet(event)">
+<input id="wallet" placeholder="EQ... или UQ... твой TON кошелек" value="{wallet_db}" />
+<button class="btn" type="submit">💾 Сохранить кошелек</button>
+</form>
+<div id="wallet_res" style="margin-top:8px"></div>
+<script>
+async function setWallet(e){{
+ e.preventDefault();
+ const w=document.getElementById('wallet').value.trim();
+ const resDiv=document.getElementById('wallet_res');
+ resDiv.textContent='Сохранение...';
+ try{{
+   const r=await fetch('/api/admin/settings/wallet?admin_token={token}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{wallet:w}})}});
+   const j=await r.json();
+   resDiv.textContent=j.ok ? '✅ Сохранено: '+j.wallet : '❌ Ошибка: '+(j.error||'unknown');
+   if(j.ok) location.reload();
+ }}catch(err){{ resDiv.textContent='❌ '+err; }}
+}}
+</script>
+</div>
+
 <div class="card"><b>⏳ Pending заказы ({len(pending_orders)})</b><br>
-{''.join(f"<div>#{o['id']} @{o.get('username')} {o.get('title')} {o.get('amount_gram')} GRAM memo={o.get('pay_memo')} <a href='/api/admin/orders/{o['id']}/approve?admin_token={token}'>✅ Approve</a></div>" for o in pending_orders) or 'нет'}
+{''.join(f"<div style='margin:6px 0'>#{o['id']} @{o.get('username')} {o.get('title')} {o.get('amount_gram')} GRAM memo={o.get('pay_memo')} <a class='btn' href='/api/admin/orders/{o['id']}/approve?admin_token={token}'>✅ Approve</a> <a class='btn' href='/api/admin/orders/{o['id']}/check?admin_token={token}'>🔍 Check TONAPI</a></div>" for o in pending_orders) or 'нет'}
 </div>
+
 <div class="card"><b>👠 Новые сессии ({len(new_sessions)})</b><br>
 {''.join(f"<div>#{s['id']} @{s.get('username')} {s.get('kind')} {s.get('comment')[:80]}</div>" for s in new_sessions) or 'нет'}
 </div>
+
 <div class="card"><b>Быстрые ссылки</b><br>
-<a href="/api/products?admin_token={token}">/api/products</a> · <a href="/api/admin/stats?admin_token={token}">/api/admin/stats</a>
+<a href="/api/products?admin_token={token}">/api/products</a> · <a href="/api/admin/stats?admin_token={token}">/api/admin/stats</a> · <a href="/api/admin/settings?admin_token={token}">/api/admin/settings</a> · <a href="/api/config">/api/config</a>
+<br><br><small>Для БотХоста достаточно: <code>TONAPI_KEY</code> + <code>ADMIN_IDS</code> — остальное подхватится. Если хочешь ботов — добавь <code>BOT_TOKEN</code>.</small>
 </div>
+
 </body></html>
 """
     return web.Response(text=html, content_type="text/html")
@@ -519,6 +582,95 @@ async def handle_admin_order_approve(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "order": await db.get_order(oid)})
 
 
+@require_admin
+async def handle_admin_order_check(request: web.Request) -> web.Response:
+    """Ручная проверка заказа через TONAPI (для админки)."""
+    try:
+        oid = int(request.match_info["id"])
+    except:
+        return web.json_response({"ok": False, "error": "bad_id"}, status=400)
+    order = await db.get_order(oid)
+    if not order:
+        return web.json_response({"ok": False, "error": "not_found"}, status=404)
+    if order["status"] == "paid":
+        return web.json_response({"ok": True, "status": "paid", "order": order})
+    if settings.tonapi_configured:
+        try:
+            from payments.tonapi import verify_order
+            res = await verify_order(order)
+            if res.get("paid"):
+                await db.set_order_status(oid, "paid")
+                await db.record_payment(
+                    order_id=oid,
+                    provider="tonapi",
+                    provider_payment_id=res["found"]["tx"].get("hash") or res["memo"],
+                    amount=res["found"].get("amount"),
+                    status="paid",
+                    raw=str(res["found"]["tx"])[:2000],
+                    currency="GRAM",
+                )
+                from bots.admin_bot import fulfill_order
+                import notify as notify_mod
+                user_text = await fulfill_order(order)
+                await notify_mod.notify_user(order["user_id"], user_text)
+                order = await db.get_order(oid)
+                return web.json_response({"ok": True, "status": "paid", "order": order, "via": "tonapi", "tx": res["found"]})
+            return web.json_response({"ok": True, "status": "pending", "order": order, "tonapi": res})
+        except Exception as e:
+            return web.json_response({"ok": False, "error": str(e)}, status=500)
+    return web.json_response({"ok": True, "status": order["status"], "order": order})
+
+
+@require_admin
+async def handle_admin_settings(request: web.Request) -> web.Response:
+    """Все настройки для минимального деплоя."""
+    try:
+        wallet = await db.get_wallet_address()
+    except Exception:
+        wallet = settings.ton_wallet_address or settings.gram_wallet_address
+    try:
+        gram_rate = await db.get_gram_rate()
+    except Exception:
+        gram_rate = 0
+    return web.json_response({
+        "ok": True,
+        "tonapi_key": (settings.tonapi_key[:8] + "…") if settings.tonapi_key else "",
+        "tonapi_configured": settings.tonapi_configured,
+        "tonapi_wallet_configured": settings.tonapi_wallet_configured,
+        "wallet_env": settings.ton_wallet_address or settings.gram_wallet_address or "",
+        "wallet_db": wallet,
+        "wallet_effective": wallet or settings.ton_wallet_address or settings.gram_wallet_address or "",
+        "gram_jetton_master": settings.gram_jetton_master,
+        "payments_mode": settings.payments_mode,
+        "public_url": settings.public_url,
+        "admin_ids": settings.admin_ids,
+        "admin_panel_token": settings.admin_panel_token,
+        "gram_rate": gram_rate,
+        "contact_username": settings.contact_username,
+    })
+
+
+@require_admin
+async def handle_admin_settings_wallet(request: web.Request) -> web.Response:
+    """Сохранить кошелек в БД без редеплоя (для минимального деплоя TONAPI_KEY + ADMIN_IDS)."""
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    wallet = (data.get("wallet") or data.get("address") or request.query.get("wallet") or "").strip()
+    if not wallet:
+        return web.json_response({"ok": False, "error": "wallet required, e.g. EQ... or UQ..."}, status=400)
+    # базовая валидация TON адреса
+    if len(wallet) < 20 or not wallet.startswith(("EQ", "UQ", "0Q", "kQ")):
+        # все равно сохраним, но предупредим
+        log.warning("admin: saving wallet with unusual format: %s", wallet)
+    try:
+        await db.set_wallet_address(wallet)
+        return web.json_response({"ok": True, "wallet": wallet, "message": "saved to DB, tonapi poll will use it"})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
 # ---------- app factory ----------
 
 def create_app() -> web.Application:
@@ -559,6 +711,11 @@ def create_app() -> web.Application:
     app.router.add_get("/api/admin/orders", handle_admin_orders)
     app.router.add_post("/api/admin/orders/{id}/approve", handle_admin_order_approve)
     app.router.add_get("/api/admin/orders/{id}/approve", handle_admin_order_approve)  # для удобства по ссылке
+    app.router.add_get("/api/admin/orders/{id}/check", handle_admin_order_check)
+    app.router.add_post("/api/admin/orders/{id}/check", handle_admin_order_check)
+    app.router.add_get("/api/admin/settings", handle_admin_settings)
+    app.router.add_post("/api/admin/settings/wallet", handle_admin_settings_wallet)
+    app.router.add_get("/api/admin/settings/wallet", handle_admin_settings_wallet)
 
     # OPTIONS для CORS preflight
     async def options_handler(request):

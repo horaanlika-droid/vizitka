@@ -91,7 +91,17 @@ async def create_invoice(order_id: int, amount_gram: float | None,
      qr_text?, provider_id?, raw?, error?}
     """
     if not payment_is_configured():
-        return _manual_invoice(amount_gram, memo)
+        # пробуем получить кошелек из БД если ENV пуст (для минимального деплоя)
+        try:
+            import database as db
+            wallet_db = await db.get_wallet_address()
+            if wallet_db:
+                # временно подменяем для _manual_invoice
+                # _manual_invoice берет из settings, но мы передадим напрямую
+                return await _manual_invoice_async(amount_gram, memo, wallet_db)
+        except Exception:
+            pass
+        return await _manual_invoice_async(amount_gram, memo)
 
     payload = {
         "amount": amount_gram,
@@ -105,7 +115,12 @@ async def create_invoice(order_id: int, amount_gram: float | None,
     ok, data = await _post(settings.gram_create_path, payload)
     if not ok:
         log.warning("gram: create_invoice упал, отдаю manual как fallback")
-        out = _manual_invoice(amount_gram, memo)
+        try:
+            import database as db
+            wallet_db = await db.get_wallet_address()
+            out = await _manual_invoice_async(amount_gram, memo, wallet_db or None)
+        except Exception:
+            out = await _manual_invoice_async(amount_gram, memo)
         out["fallback_reason"] = str(data.get("error") or data.get("http") or "api_error")
         return out
 
@@ -129,10 +144,15 @@ async def create_invoice(order_id: int, amount_gram: float | None,
 
 
 def _manual_invoice(amount_gram: float | None, memo: str) -> dict[str, Any]:
-    address = settings.gram_wallet_address or ""
+    # legacy sync версия — для совместимости
+    address = settings.gram_wallet_address or settings.ton_wallet_address or ""
+    mode = settings.payments_mode
+    # если есть TONAPI ключ — показываем как tonapi режим, даже если кошелек из ENV
+    if settings.tonapi_configured:
+        mode = "tonapi"
     return {
         "ok": True,
-        "mode": "manual",
+        "mode": mode,
         "pay_url": "",
         "address": address,
         "memo": memo,
@@ -142,7 +162,37 @@ def _manual_invoice(amount_gram: float | None, memo: str) -> dict[str, Any]:
         "raw": "",
         "contact": "@" + settings.contact_username,
         "note": ("Оплата в ручном режиме: переведи GRAM на адрес с мемо, "
-                 "админ подтвердит заказ в течение дня."),
+                 "админ подтвердит заказ в течение дня." if mode == "manual" else
+                 "Оплата через TON: переведи TON/GRAM на адрес с мемо, бот проверит блокчейн автоматически."),
+    }
+
+
+async def _manual_invoice_async(amount_gram: float | None, memo: str, wallet_override: str | None = None) -> dict[str, Any]:
+    address = wallet_override or settings.gram_wallet_address or settings.ton_wallet_address or ""
+    if not address:
+        try:
+            import database as db
+            address = await db.get_wallet_address() or ""
+        except Exception:
+            address = ""
+    mode = settings.payments_mode
+    if settings.tonapi_configured:
+        mode = "tonapi"
+    return {
+        "ok": True,
+        "mode": mode,
+        "pay_url": "",
+        "address": address,
+        "memo": memo,
+        "amount": amount_gram,
+        "qr_text": f"{address}:{memo}" if address else memo,
+        "provider_id": "",
+        "raw": "",
+        "contact": "@" + settings.contact_username,
+        "note": ("Оплата в ручном режиме: переведи GRAM на адрес с мемо, "
+                 "админ подтвердит заказ в течение дня." if mode == "manual" else
+                 "Оплата через TON: переведи TON/GRAM на адрес с мемо, бот проверит блокчейн автоматически. "
+                 "Если кошелек не указан — задай его в /admin"),
     }
 
 
