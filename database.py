@@ -22,6 +22,8 @@ log = logging.getLogger("vizitka.db")
 __all__ = [
     # служебные
     "init_db", "ensure_schema", "ensure_player", "utcnow",
+    # горячее предложение
+    "get_hot_offer", "set_hot_offer", "clear_hot_offer",
     # legacy-игроки
     "get_player", "create_player", "get_username", "update_dressage_level",
     "get_points", "get_nickname", "get_rolls_left", "get_used_rolls",
@@ -706,3 +708,43 @@ async def set_wallet_address(address: str) -> None:
         return
     await set_setting("ton_wallet_address", address)
     await set_setting("gram_wallet_address", address)
+
+
+# ---------- горячее предложение ----------
+
+async def get_hot_offer() -> dict[str, Any]:
+    """Получить текущее горячее предложение.
+
+    Возвращает dict с полями: text, is_active, photo_file_id, price, emoji.
+    Если предложения нет — возвращает dict с is_active=False.
+    """
+    text = await get_setting("hot_offer_text")
+    is_active = await get_setting("hot_offer_active") == "1"
+    photo_file_id = await get_setting("hot_offer_photo")
+    price = await get_setting("hot_offer_price")
+    emoji = await get_setting("hot_offer_emoji") or "🔥"
+    return {
+        "text": text,
+        "is_active": is_active,
+        "photo_file_id": photo_file_id,
+        "price": price,
+        "emoji": emoji,
+    }
+
+
+async def set_hot_offer(text: str, photo_file_id: str = "", price: str = "",
+                        emoji: str = "🔥", is_active: bool = True) -> None:
+    """Создать или обновить горячее предложение."""
+    await set_setting("hot_offer_text", text)
+    await set_setting("hot_offer_active", "1" if is_active else "0")
+    await set_setting("hot_offer_photo", photo_file_id)
+    await set_setting("hot_offer_price", price)
+    await set_setting("hot_offer_emoji", emoji)
+
+
+async def clear_hot_offer() -> None:
+    """Удалить горячее предложение."""
+    await set_setting("hot_offer_text", "")
+    await set_setting("hot_offer_active", "0")
+    await set_setting("hot_offer_photo", "")
+    await set_setting("hot_offer_price", "")

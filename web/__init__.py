@@ -109,6 +109,12 @@ h1{{font-size:22px}}
 #products{{max-width:720px;margin:0 auto}}
 .header{{max-width:720px;margin:0 auto 16px;display:flex;justify-content:space-between;align-items:center}}
 a{{color:#8ab4ff}}
+.hot-offer{{max-width:720px;margin:0 auto 16px;background:linear-gradient(135deg,#ff6b35,#f7931e);border-radius:16px;padding:16px;display:none;animation:pulse 2s infinite}}
+.hot-offer.active{{display:block}}
+.hot-offer-text{{font-size:18px;font-weight:700;margin-bottom:8px}}
+.hot-offer-price{{font-size:16px;opacity:.9}}
+.hot-offer img{{width:100%;max-width:300px;border-radius:12px;margin-top:12px}}
+@keyframes pulse{{0%,100%{{box-shadow:0 0 20px rgba(255,107,53,0.5)}}50%{{box-shadow:0 0 30px rgba(255,107,53,0.8)}}}}
 </style>
 </head>
 <body>
@@ -116,6 +122,7 @@ a{{color:#8ab4ff}}
 <div><h1>🛍 Витрина</h1><div style="opacity:.7">@{settings.contact_username} · <a href="https://t.me/{settings.contact_username}" target="_blank">ЛС Богини</a></div></div>
 <div id="user"></div>
 </div>
+<div id="hot_offer" class="hot-offer"></div>
 <div id="products">Загрузка…</div>
 <div style="max-width:720px;margin:24px auto 0;opacity:.6;font-size:12px">
 <a href="/health">health</a> · <a href="/api/config">config</a> · <a href="/admin?admin_token={settings.admin_panel_token}">admin</a>
@@ -125,6 +132,27 @@ const tg = window.Telegram?.WebApp; if(tg){{tg.ready(); tg.expand();}}
 let initData = tg?.initData || new URLSearchParams(location.search).get('initData') || '';
 const PRODUCTS={{}};
 function headers(){{ const h={{'Content-Type':'application/json'}}; if(initData) h['X-Telegram-Init-Data']=initData; return h; }}
+async function loadHotOffer() {{
+  try {{
+    const r = await fetch('/api/hot_offer', {{headers: headers()}});
+    const j = await r.json();
+    if (j.ok && j.offer) {{
+      const offerDiv = document.getElementById('hot_offer');
+      const emoji = j.offer.emoji || '🔥';
+      let html = `<div class="hot-offer-text">${{emoji}} ${{j.offer.text}}</div>`;
+      if (j.offer.price) {{
+        html += `<div class="hot-offer-price">💰 ${{j.offer.price}}</div>`;
+      }}
+      if (j.offer.photo_file_id) {{
+        html += `<img src="/api/media/${{j.offer.photo_file_id}}" onerror="this.style.display='none'">`;
+      }}
+      offerDiv.innerHTML = html;
+      offerDiv.classList.add('active');
+    }}
+  }} catch(e) {{
+    console.log('Hot offer load error:', e);
+  }}
+}}
 async function load() {{
   try{{
     const r = await fetch('/api/products', {{headers: headers()}});
@@ -150,6 +178,7 @@ async function buy(id){{
   if(tg && typeof tg.openTelegramLink === 'function'){{ try{{ tg.openTelegramLink(url); return; }}catch(e){{}} }}
   window.open(url, '_blank');
 }}
+loadHotOffer();
 load();
 if(tg?.initDataUnsafe?.user) document.getElementById('user').textContent = '@'+(tg.initDataUnsafe.user.username||tg.initDataUnsafe.user.first_name);
 </script>
@@ -234,6 +263,18 @@ async def handle_reviews(request: web.Request) -> web.Response:
         log.warning("reviews failed: %s", e)
         items = []
     return web.json_response({"ok": True, "reviews": items})
+
+
+async def handle_hot_offer(request: web.Request) -> web.Response:
+    """Получить текущее активное горячее предложение."""
+    try:
+        offer = await db.get_hot_offer()
+        if offer["is_active"] and offer["text"]:
+            return web.json_response({"ok": True, "offer": offer})
+        return web.json_response({"ok": True, "offer": None})
+    except Exception as e:
+        log.warning("hot_offer failed: %s", e)
+        return web.json_response({"ok": True, "offer": None})
 
 
 async def handle_media(request: web.Request) -> web.Response:
@@ -765,6 +806,7 @@ def create_app() -> web.Application:
     app.router.add_get("/api/products", handle_products)
     app.router.add_get("/api/products/{id}", handle_product_one)
     app.router.add_get("/api/reviews", handle_reviews)
+    app.router.add_get("/api/hot_offer", handle_hot_offer)
     app.router.add_get("/api/media/{file_id}", handle_media)
 
     app.router.add_post("/api/orders/create", handle_orders_create)
