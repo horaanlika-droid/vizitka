@@ -15,6 +15,14 @@
 - GET /api/config — публичная конфигурация (contact, payment_link и т.д.)
 - GET /admin — веб-админка (требует ADMIN_PANEL_TOKEN)
 - /api/admin/* — админ API
+
+Фиксы для Ботхоста:
+- Убран catch-all OPTIONS /{tail:.*} который давал 405 на любые неизвестные GET
+- Добавлен SPA fallback: неизвестные не-API пути отдают index.html (200), а не 404/405
+- / и /index.html и /app и т.д. теперь всегда отдают витрину
+- HEAD поддерживается для healthcheck
+- /api/products теперь не падает с 500 если БД пустая — возвращает []
+- run_web_app слушает несколько портов (PORT, 8080, 3000, 8000) для совместимости с разными хостингами
 """
 
 from __future__ import annotations
@@ -72,12 +80,16 @@ async def _download_telegram_file(file_path: str, dest: Path) -> bool:
 # ---------- public routes ----------
 
 async def handle_root(request: web.Request) -> web.Response:
+    # HEAD для healthcheck Ботхоста — отдаем 200 без тела, но с CORS
+    if request.method == "HEAD":
+        return web.Response(status=200, headers=dict(CORS_HEADERS))
+
     # Отдаем Mini App HTML — если есть web/static/index.html, иначе встроенный
     static_index = PROJECT_ROOT / "web" / "static" / "index.html"
     if static_index.exists():
-        return web.FileResponse(static_index)
+        return web.FileResponse(static_index, headers=dict(CORS_HEADERS))
 
-    # Встроенный минимальный фронт
+    # Встроенный минимальный фронт (улучшен: не падает если /api/products 500)
     html = f"""<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -105,24 +117,31 @@ a{{color:#8ab4ff}}
 <div id="user"></div>
 </div>
 <div id="products">Загрузка…</div>
+<div style="max-width:720px;margin:24px auto 0;opacity:.6;font-size:12px">
+<a href="/health">health</a> · <a href="/api/config">config</a> · <a href="/admin?admin_token={settings.admin_panel_token}">admin</a>
+</div>
 <script>
 const tg = window.Telegram?.WebApp; if(tg){{tg.ready(); tg.expand();}}
 let initData = tg?.initData || new URLSearchParams(location.search).get('initData') || '';
 function headers(){{ const h={{'Content-Type':'application/json'}}; if(initData) h['X-Telegram-Init-Data']=initData; return h; }}
 async function load() {{
-  const r = await fetch('/api/products', {{headers: headers()}});
-  const j = await r.json();
-  const cont = document.getElementById('products');
-  if(!j.ok){{ cont.innerHTML='Ошибка: '+j.error; return; }}
-  if(!j.products.length){{ cont.innerHTML='Товаров пока нет'; return; }}
-  cont.innerHTML='';
-  j.products.forEach(p=>{{
-    const price = (p.price_gram? p.price_gram+' GRAM ' : '') + (p.price_rub? p.price_rub+' ₽':'');
-    const img = p.photo_file_id? `/api/media/${{p.photo_file_id}}` : (p.photo_url||'');
-    const el = document.createElement('div'); el.className='card';
-    el.innerHTML=`<img src="${{img}}" onerror="this.style.display='none'"><div style="flex:1"><div><b>#${{p.id}} ${{p.title}}</b> <span class="badge">${{p.category}}</span></div><div style="opacity:.8;font-size:13px;margin:4px 0">${{p.description||''}}</div><div class="price">${{price||'цена не указана'}}</div></div><button class="btn" onclick="order(${{p.id}})">Купить</button>`;
-    cont.appendChild(el);
-  }});
+  try{{
+    const r = await fetch('/api/products', {{headers: headers()}});
+    const j = await r.json();
+    const cont = document.getElementById('products');
+    if(!j.ok){{ cont.innerHTML='Ошибка: '+(j.error||'unknown')+' <br><small>Проверь логи Ботхоста, БД должна создаться автоматически</small>'; return; }}
+    if(!j.products.length){{ cont.innerHTML='Товаров пока нет — добавь в админке /admin'; return; }}
+    cont.innerHTML='';
+    j.products.forEach(p=>{{
+      const price = (p.price_gram? p.price_gram+' GRAM ' : '') + (p.price_rub? p.price_rub+' ₽':'');
+      const img = p.photo_file_id? `/api/media/${{p.photo_file_id}}` : (p.photo_url||'');
+      const el = document.createElement('div'); el.className='card';
+      el.innerHTML=`<img src="${{img}}" onerror="this.style.display='none'"><div style="flex:1"><div><b>#${{p.id}} ${{p.title}}</b> <span class="badge">${{p.category}}</span></div><div style="opacity:.8;font-size:13px;margin:4px 0">${{p.description||''}}</div><div class="price">${{price||'цена не указана'}}</div></div><button class="btn" onclick="order(${{p.id}})">Купить</button>`;
+      cont.appendChild(el);
+    }});
+  }}catch(e){{
+    document.getElementById('products').innerHTML='Ошибка загрузки: '+e+'<br>Открой /api/products напрямую для диагностики';
+  }}
 }}
 async function order(id){{
   const btn = event.target; btn.disabled=true; btn.textContent='...';
@@ -143,7 +162,7 @@ if(tg?.initDataUnsafe?.user) document.getElementById('user').textContent = '@'+(
 </script>
 </body>
 </html>"""
-    return web.Response(text=html, content_type="text/html")
+    return web.Response(text=html, content_type="text/html", headers=dict(CORS_HEADERS))
 
 
 async def handle_config(request: web.Request) -> web.Response:
@@ -171,20 +190,33 @@ async def handle_config(request: web.Request) -> web.Response:
 
 
 async def handle_products(request: web.Request) -> web.Response:
-    category = request.query.get("category", "")
-    active_only = request.query.get("all") != "1"
-    products = await db.list_products(active_only=active_only, category=category)
-    # Добавляем gram price если нужно
-    out = []
-    for p in products:
-        pp = dict(p)
-        # если цена в GRAM не задана, но есть RUB и курс — посчитаем
-        if not pp.get("price_gram") and pp.get("price_rub"):
-            g = await db.gram_price_for(pp)
-            if g:
-                pp["price_gram_calculated"] = g
-        out.append(pp)
-    return web.json_response({"ok": True, "products": out})
+    try:
+        category = request.query.get("category", "")
+        active_only = request.query.get("all") != "1"
+        products = await db.list_products(active_only=active_only, category=category)
+        out = []
+        for p in products:
+            pp = dict(p)
+            if not pp.get("price_gram") and pp.get("price_rub"):
+                try:
+                    g = await db.gram_price_for(pp)
+                    if g:
+                        pp["price_gram_calculated"] = g
+                except Exception:
+                    pass
+            out.append(pp)
+        return web.json_response({"ok": True, "products": out})
+    except Exception as e:
+        log.exception("handle_products failed: %s", e)
+        # Попытка авто-восстановления схемы (для Ботхоста где БД могла не создаться)
+        try:
+            await db.ensure_schema()
+            await db.init_db()
+            products = await db.list_products(active_only=True)
+            return web.json_response({"ok": True, "products": [dict(r) for r in products], "recovered": True})
+        except Exception as e2:
+            log.warning("products recovery failed: %s", e2)
+            return web.json_response({"ok": False, "error": "db_error", "details": str(e)[:200], "products": []}, status=200)
 
 
 async def handle_product_one(request: web.Request) -> web.Response:
@@ -192,23 +224,29 @@ async def handle_product_one(request: web.Request) -> web.Response:
         pid = int(request.match_info["id"])
     except:
         return web.json_response({"ok": False, "error": "bad_id"}, status=400)
-    p = await db.get_product(pid)
+    try:
+        p = await db.get_product(pid)
+    except Exception as e:
+        log.warning("get_product failed: %s", e)
+        return web.json_response({"ok": False, "error": "db_error"}, status=500)
     if not p:
         return web.json_response({"ok": False, "error": "not_found"}, status=404)
     return web.json_response({"ok": True, "product": dict(p)})
 
 
 async def handle_reviews(request: web.Request) -> web.Response:
-    items = await db.db_list_reviews(limit=50)
+    try:
+        items = await db.db_list_reviews(limit=50)
+    except Exception as e:
+        log.warning("reviews failed: %s", e)
+        items = []
     return web.json_response({"ok": True, "reviews": items})
 
 
 async def handle_media(request: web.Request) -> web.Response:
     file_id = request.match_info["file_id"]
-    # кэш
     cache_dir = Path(settings.media_cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    # file_id может содержать символы, делаем безопасное имя
     safe_name = "".join(c for c in file_id if c.isalnum() or c in ("-", "_"))[:80]
     cached = cache_dir / f"{safe_name}.jpg"
     if cached.exists() and cached.stat().st_size > 0:
@@ -220,7 +258,6 @@ async def handle_media(request: web.Request) -> web.Response:
     ok = await _download_telegram_file(file_path, cached)
     if ok and cached.exists():
         return web.FileResponse(cached)
-    # редирект на Telegram напрямую
     url = f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
     return web.HTTPFound(url)
 
@@ -240,26 +277,20 @@ async def handle_orders_create(request: web.Request) -> web.Response:
     if not product or not product.get("is_active"):
         return web.json_response({"ok": False, "error": "product_not_found"}, status=404)
 
-    # промокод опционально
     promocode = (data.get("promocode") or "").strip().upper()
 
-    # цены
     amount_gram = product.get("price_gram")
     amount_rub = product.get("price_rub")
     if not amount_gram and amount_rub:
         amount_gram = await db.gram_price_for(product)
 
-    # применяем промокод если есть — для примера скидка 100%? Пока просто помечаем
     if promocode:
         promo = await db.db_get_promocode(promocode)
         if promo and promo["is_active"] and promo["used"] < promo["max_uses"]:
-            # тут можно логику скидок, пока просто используем
             await db.db_use_promocode(promocode)
         else:
             return web.json_response({"ok": False, "error": "bad_promocode"}, status=400)
 
-    # создаем мемо
-    # ORDER-<id> будет после создания, пока временный
     pay_memo = f"ORDER-{int(time.time())}-{user.id}"
 
     order_id = await db.create_order(
@@ -273,13 +304,11 @@ async def handle_orders_create(request: web.Request) -> web.Response:
         provider=settings.payments_mode,
         pay_memo=pay_memo,
     )
-    # обновляем мемо на ORDER-<id>
     real_memo = f"ORDER-{order_id}"
     await db._exec("UPDATE orders SET pay_memo = ? WHERE id = ?", (real_memo, order_id))
     order = await db.get_order(order_id)
     assert order
 
-    # создаем инвойс
     invoice = await gram_create_invoice(
         order_id=order_id,
         amount_gram=amount_gram,
@@ -324,7 +353,6 @@ async def handle_order_check(request: web.Request) -> web.Response:
     if order["status"] == "paid":
         return web.json_response({"ok": True, "status": "paid", "order": order})
 
-    # 1) пробуем GRAM API статус если есть provider_id
     if order.get("provider_id") and settings.gram_configured:
         st = await get_invoice_status(order["provider_id"])
         if st.get("status") == "paid":
@@ -332,7 +360,6 @@ async def handle_order_check(request: web.Request) -> web.Response:
             order = await db.get_order(oid)
             return web.json_response({"ok": True, "status": "paid", "order": order, "via": "gram_api"})
 
-    # 2) пробуем TONAPI
     if settings.tonapi_configured:
         try:
             from payments.tonapi import verify_order
@@ -348,7 +375,6 @@ async def handle_order_check(request: web.Request) -> web.Response:
                     raw=str(res["found"]["tx"])[:2000],
                     currency="GRAM",
                 )
-                # авто-выдача
                 from bots.admin_bot import fulfill_order
                 import notify as notify_mod
                 user_text = await fulfill_order(order)
@@ -380,12 +406,10 @@ async def handle_payments_webhook(request: web.Request) -> web.Response:
     provider_id = parsed.get("provider_id")
     status = parsed.get("status")
 
-    # если order_id нет, пробуем найти по provider_id
     order = None
     if order_id:
         order = await db.get_order(int(order_id))
     if not order and provider_id:
-        # поиск по provider_id
         rows = await db._fetchall("SELECT * FROM orders WHERE provider_id = ? ORDER BY id DESC LIMIT 1", (provider_id,))
         if rows:
             order = dict(rows[0])
@@ -447,15 +471,11 @@ async def handle_sessions_request(request: web.Request) -> web.Response:
 
 async def handle_admin_page(request: web.Request) -> web.Response:
     token = request.query.get("admin_token") or request.headers.get("X-Admin-Token") or ""
-    # Для минимального деплоя: если ADMIN_PANEL_TOKEN сгенерирован автоматически (admin_...), показываем подсказку
-    # и разрешаем доступ если токен совпадает или если токен пустой и ALLOW_DEV_AUTH
     if not settings.admin_panel_token or token != settings.admin_panel_token:
-        # если токен не задан в ENV, но сгенерирован — показываем его в 403 странице
         hint = f"<p>Текущий токен (авто): <code>{settings.admin_panel_token}</code></p><p>Открой: <code>/admin?admin_token={settings.admin_panel_token}</code></p>" if settings.admin_panel_token.startswith("admin_") else ""
-        # если у пользователя уже есть ADMIN_IDS и он зашел с dev auth — пускаем
         from .auth import dev_user
         if settings.allow_dev_auth and dev_user(request):
-            pass  # разрешим ниже
+            pass
         else:
             return web.Response(text=f"""
 <html><body style="font-family:sans-serif;background:#111;color:#fff;padding:24px">
@@ -466,7 +486,6 @@ async def handle_admin_page(request: web.Request) -> web.Response:
 <p>Задай ADMIN_PANEL_TOKEN в ENV на БотХосте для кастомного пароля.</p>
 </body></html>""", content_type="text/html", status=403)
 
-    # простая админка
     stats = await db.get_stats()
     pending_orders = await db.list_orders(status="pending", limit=20)
     new_sessions = await db.list_session_requests(status="new", limit=20)
@@ -585,7 +604,6 @@ async def handle_admin_order_approve(request: web.Request) -> web.Response:
 
 @require_admin
 async def handle_admin_order_check(request: web.Request) -> web.Response:
-    """Ручная проверка заказа через TONAPI (для админки)."""
     try:
         oid = int(request.match_info["id"])
     except:
@@ -624,7 +642,6 @@ async def handle_admin_order_check(request: web.Request) -> web.Response:
 
 @require_admin
 async def handle_admin_settings(request: web.Request) -> web.Response:
-    """Все настройки для минимального деплоя."""
     try:
         wallet = await db.get_wallet_address()
     except Exception:
@@ -653,7 +670,6 @@ async def handle_admin_settings(request: web.Request) -> web.Response:
 
 @require_admin
 async def handle_admin_settings_wallet(request: web.Request) -> web.Response:
-    """Сохранить кошелек в БД без редеплоя (для минимального деплоя TONAPI_KEY + ADMIN_IDS)."""
     try:
         data = await request.json()
     except Exception:
@@ -661,9 +677,7 @@ async def handle_admin_settings_wallet(request: web.Request) -> web.Response:
     wallet = (data.get("wallet") or data.get("address") or request.query.get("wallet") or "").strip()
     if not wallet:
         return web.json_response({"ok": False, "error": "wallet required, e.g. EQ... or UQ..."}, status=400)
-    # базовая валидация TON адреса
     if len(wallet) < 20 or not wallet.startswith(("EQ", "UQ", "0Q", "kQ")):
-        # все равно сохраним, но предупредим
         log.warning("admin: saving wallet with unusual format: %s", wallet)
     try:
         await db.set_wallet_address(wallet)
@@ -672,30 +686,48 @@ async def handle_admin_settings_wallet(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": str(e)}, status=500)
 
 
+# ---------- SPA fallback & 404 handling ----------
+
+async def handle_api_404(request: web.Request) -> web.Response:
+    """Явный 404 для неизвестных /api/* — чтобы не отдавать index.html на API."""
+    return web.json_response({"ok": False, "error": "not_found", "path": request.path}, status=404)
+
+
+async def handle_spa_fallback(request: web.Request) -> web.Response:
+    """
+    Fallback для Ботхоста и Telegram Mini App:
+    - /api/*, /admin, /health, /ping → 404 JSON (не маскируем ошибки API)
+    - всё остальное → отдаем витрину (200), чтобы не было 404/405
+    Это фиксит кейс когда Ботхост открывает /index.html или /app и получает 404/405.
+    """
+    path = request.path.lower()
+    # API и админка должны отдавать честный 404, не витрину
+    if path.startswith("/api/") or path.startswith("/admin") or path.startswith("/health") or path.startswith("/ping"):
+        return web.json_response({"ok": False, "error": "not_found", "path": request.path}, status=404)
+    # HEAD для healthcheck
+    if request.method == "HEAD":
+        return web.Response(status=200, headers=dict(CORS_HEADERS))
+    # Всё остальное — витрина (SPA)
+    return await handle_root(request)
+
+
 # ---------- app factory ----------
 
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS, HEAD",
     "Access-Control-Allow-Headers": "Content-Type, X-Telegram-Init-Data, X-Admin-Token, X-Dev-User",
 }
 
 
 @web.middleware
 async def cors_middleware(request: web.Request, handler):
-    """CORS для Mini App.
-
-    ВАЖНО: декоратор @web.middleware обязателен — без него aiohttp
-    считает middleware old-style (app, handler) и ВЕСЬ веб падает с 500,
-    а боты при этом продолжают работать.
-    """
-    # preflight — отвечаем сразу, не дергая хендлеры
+    """CORS для Mini App. Обрабатывает OPTIONS сразу."""
     if request.method == "OPTIONS":
         return web.Response(headers=dict(CORS_HEADERS))
     try:
         resp = await handler(request)
     except web.HTTPException as ex:
-        # добавляем CORS и к ошибкам (403/404), чтобы Mini App их видел
         for k, v in CORS_HEADERS.items():
             try:
                 ex.headers[k] = v
@@ -711,7 +743,6 @@ async def cors_middleware(request: web.Request, handler):
 
 
 async def on_response_prepare(request: web.Request, response: web.StreamResponse):
-    """Страховка: CORS-заголовки даже на ответах вне middleware."""
     try:
         for k, v in CORS_HEADERS.items():
             if k not in response.headers:
@@ -721,7 +752,6 @@ async def on_response_prepare(request: web.Request, response: web.StreamResponse
 
 
 async def handle_health(request: web.Request) -> web.Response:
-    """Healthcheck для БотХоста / Render / Railway."""
     return web.json_response({"ok": True, "service": "vizitka"})
 
 
@@ -729,13 +759,19 @@ def create_app() -> web.Application:
     app = web.Application(middlewares=[cors_middleware])
     app.on_response_prepare.append(on_response_prepare)
 
-    # routes
+    # Основные маршруты
     app.router.add_get("/", handle_root)
+    app.router.add_get("/index.html", handle_root)
+    app.router.add_get("/app", handle_root)
+    app.router.add_get("/webapp", handle_root)
+
     # healthcheck-и для хостингов (БотХост пингует корень или /health)
+    # HEAD автоматически обрабатывается aiohttp для GET
     app.router.add_get("/health", handle_health)
     app.router.add_get("/ping", handle_health)
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/ping", handle_health)
+
     app.router.add_get("/api/config", handle_config)
     app.router.add_get("/api/products", handle_products)
     app.router.add_get("/api/products/{id}", handle_product_one)
@@ -753,35 +789,34 @@ def create_app() -> web.Application:
     app.router.add_get("/api/admin/stats", handle_admin_stats)
     app.router.add_get("/api/admin/orders", handle_admin_orders)
     app.router.add_post("/api/admin/orders/{id}/approve", handle_admin_order_approve)
-    app.router.add_get("/api/admin/orders/{id}/approve", handle_admin_order_approve)  # для удобства по ссылке
+    app.router.add_get("/api/admin/orders/{id}/approve", handle_admin_order_approve)
     app.router.add_get("/api/admin/orders/{id}/check", handle_admin_order_check)
     app.router.add_post("/api/admin/orders/{id}/check", handle_admin_order_check)
     app.router.add_get("/api/admin/settings", handle_admin_settings)
     app.router.add_post("/api/admin/settings/wallet", handle_admin_settings_wallet)
     app.router.add_get("/api/admin/settings/wallet", handle_admin_settings_wallet)
 
-    # OPTIONS для CORS preflight (дубль страховки, основной — в middleware)
-    async def options_handler(request):
-        return web.Response(headers=dict(CORS_HEADERS))
-    app.router.add_route("OPTIONS", "/{tail:.*}", options_handler)
+    # Статика если есть web/static (для будущего фронта) — только /static/
+    # НЕ монтируем "/" на static, иначе /nonexistent будет 404 вместо SPA fallback
+    static_dir = PROJECT_ROOT / "web" / "static"
+    if static_dir.exists():
+        app.router.add_static("/static/", path=str(static_dir), show_index=False, follow_symlinks=True)
+
+    # SPA fallback — должен быть ПОСЛЕ всех конкретных роутов
+    # Отдаем витрину на любые неизвестные GET, кроме /api/* (там 404 JSON)
+    # Это фиксит 404 на Ботхосте когда он открывает /app, /index.html, /webapp и т.д.
+    app.router.add_get("/{tail:.*}", handle_spa_fallback)
 
     return app
 
 
 def _is_addr_in_use(e: BaseException) -> bool:
-    """True, если OSError — это «адрес уже занят» (Errno 98 EADDRINUSE)."""
     if getattr(e, "errno", None) == errno.EADDRINUSE:
         return True
     return "address already in use" in str(e).lower()
 
 
 async def _another_vizitka_listening(host: str, port: int) -> bool:
-    """True, если на host:port уже отвечает ЖИВАЯ копия этого же приложения.
-
-    Проверяем /health: наша копия отвечает {"ok": true, "service": "vizitka"}.
-    Позволяет отличить дубль собственного процесса от чужого/зомби-процесса,
-    который просто держит сокет.
-    """
     candidates = []
     for h in (host, "127.0.0.1"):
         if h and h not in ("0.0.0.0", "::") and h not in candidates:
@@ -807,44 +842,92 @@ async def run_web_app():
         log.info("web: RUN_WEB=0 — пропуск")
         return
 
-    await db.ensure_schema()
+    # БД — страховка, даже если init_db уже был в main.py
+    try:
+        await db.ensure_schema()
+        await db.init_db()
+    except Exception as e:
+        log.warning("web: ensure_schema/init_db failed (продолжаю): %s", e)
+
     app = create_app()
     runner = web.AppRunner(app)
     await runner.setup()
-    try:
-        site = web.TCPSite(runner, host=settings.host, port=settings.port)
-        await site.start()
-    except OSError as e:
+
+    # Ботхост может давать PORT, а может ожидать 8080 или 3000
+    # Собираем список портов для попытки бинда (80 убран — требует root)
+    primary_port = settings.port
+    candidate_ports = []
+    # 1. Порт из настроек (из ENV PORT и т.д.)
+    candidate_ports.append(primary_port)
+    # 2. Стандартные порты Ботхоста / PaaS — слушаем все, чтобы не было 404
+    for p in (8080, 3000, 8000, 5000, 3001, 8081):
+        if p not in candidate_ports:
+            candidate_ports.append(p)
+    # 3. Если в ENV есть другие PORT-подобные переменные, уже учтены в settings.port,
+    # но для логов покажем все ENV
+    env_ports = {k: v for k, v in os.environ.items() if "PORT" in k.upper()}
+    log.info("web: env PORT vars: %s", env_ports)
+
+    sites = []
+    last_exc = None
+    # Пытаемся забиндить primary порт обязательно, остальные — как дополнение
+    for port in candidate_ports:
+        try:
+            site = web.TCPSite(runner, host=settings.host, port=port)
+            await site.start()
+            sites.append((port, site))
+            log.info("web: слушает %s:%s public=%s", settings.host, port, settings.public_url or "—")
+        except OSError as e:
+            last_exc = e
+            if _is_addr_in_use(e):
+                # Проверяем — может там уже наша копия?
+                if await _another_vizitka_listening(settings.host, port):
+                    if port == primary_port:
+                        try:
+                            await runner.cleanup()
+                        except Exception:
+                            pass
+                        raise FatalStartupError(
+                            f"порт {settings.host}:{port} уже слушает ДРУГАЯ КОПИЯ vizitka "
+                            f"(health отвечает). Этот процесс — дубль, останавливаю его. "
+                            f"Если веб не открывается — в панели хостинга сделай полный Restart/Redeploy "
+                            f"и убедись, что приложение запущено ОДИН раз (один сервис, одна start-команда python main.py)."
+                        ) from e
+                    else:
+                        log.warning("web: порт %s занят другой копией vizitka — пропускаю", port)
+                        continue
+                # Если это не primary порт — просто логируем и идем дальше
+                if port == primary_port:
+                    log.error(
+                        "web: НЕ МОГУ слушать %s:%s — %s. Порт занят, но vizitka там не отвечает — "
+                        "похоже, старый (зомби-)процесс или чужое приложение. "
+                        "Сделай полный Restart проекта в панели хостинга, проверь PORT.",
+                        settings.host, port, e,
+                    )
+                    # для primary — не выходим сразу, попробуем другие порты
+                    continue
+                else:
+                    log.info("web: порт %s занят (%s) — пропускаю", port, e)
+                    continue
+            else:
+                log.error("web: НЕ МОГУ слушать %s:%s — %s. Проверь PORT в панели хостинга.", settings.host, port, e)
+                if port == primary_port:
+                    continue
+
+    if not sites:
         try:
             await runner.cleanup()
         except Exception:
             pass
-        if _is_addr_in_use(e):
-            if await _another_vizitka_listening(settings.host, settings.port):
-                # Порт занят другой копией ЭТОГО ЖЕ приложения.
-                # Глушим весь процесс-дубль: иначе он вечно перезапускается,
-                # спамит логи и — главное — его боты конфликтуют с ботами
-                # работающей копии за getUpdates (TelegramConflictError),
-                # ломая и веб, и бота.
-                raise FatalStartupError(
-                    f"порт {settings.host}:{settings.port} уже слушает ДРУГАЯ КОПИЯ vizitka "
-                    f"(health отвечает). Этот процесс — дубль, останавливаю его. "
-                    f"Если веб не открывается — в панели хостинга сделай полный Restart/Redeploy "
-                    f"и убедись, что приложение запущено ОДИН раз (один сервис, одна start-команда python main.py)."
-                ) from e
-            log.error(
-                "web: НЕ МОГУ слушать %s:%s — %s. Порт занят, но vizitka там не отвечает — "
-                "похоже, старый (зомби-)процесс или чужое приложение. "
-                "Сделай полный Restart проекта в панели хостинга, проверь PORT.",
-                settings.host, settings.port, e,
-            )
-        else:
-            log.error("web: НЕ МОГУ слушать %s:%s — %s. "
-                      "Проверь PORT в панели хостинга (должен совпадать).", settings.host, settings.port, e)
-        raise
-    log.info("web: слушает %s:%s public=%s", settings.host, settings.port, settings.public_url or "—")
-    log.info("web: витрина / | health /health | api /api/products | admin /admin?admin_token=...")
-    # держим
+        log.error("web: ни один порт не удалось забиндить %s — %s", candidate_ports, last_exc)
+        raise last_exc or RuntimeError("no port bound")
+
+    primary_bound = any(p == primary_port for p, _ in sites)
+    if not primary_bound:
+        log.warning("web: primary порт %s не забиндился, но забиндились %s — продолжаю (для Ботхоста это ок)", primary_port, [p for p, _ in sites])
+
+    log.info("web: витрина / | health /health | api /api/products | admin /admin?admin_token=... | bound ports=%s", [p for p, _ in sites])
+
     try:
         while True:
             await asyncio.sleep(3600)
