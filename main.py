@@ -153,7 +153,17 @@ async def main():
         log.info("main: RUN_WEB=0 — веб выключен")
 
     # 5. bots
-    if settings.run_client_bot:
+    # Важно: один Telegram-токен может читать getUpdates только в ОДНОМ polling.
+    # ADMIN_BOT_TOKEN по умолчанию падает обратно на BOT_TOKEN, поэтому при
+    # одинаковых токенах запускаем только админ-бота: клиентский бот проекту не нужен.
+    tokens_are_same = bool(
+        settings.bot_token
+        and settings.admin_bot_token
+        and settings.bot_token == settings.admin_bot_token
+    )
+    skip_client_same_token = bool(settings.run_client_bot and settings.run_admin_bot and tokens_are_same)
+
+    if settings.run_client_bot and not skip_client_same_token:
         if settings.bot_token:
             try:
                 from bots.client_bot import run_client_bot
@@ -162,6 +172,12 @@ async def main():
                 log.exception("main: client_bot import failed: %s", e)
         else:
             log.warning("main: BOT_TOKEN пуст — client_bot пропускаю")
+    elif skip_client_same_token:
+        log.warning(
+            "main: RUN_CLIENT_BOT=1, но BOT_TOKEN и ADMIN_BOT_TOKEN одинаковые — "
+            "client_bot пропускаю, чтобы не было Telegram Conflict/getUpdates. "
+            "Для двух ботов нужен отдельный ADMIN_BOT_TOKEN."
+        )
     else:
         log.info("main: RUN_CLIENT_BOT=0 — клиентский бот выключен")
 
