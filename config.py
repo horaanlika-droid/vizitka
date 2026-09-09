@@ -3,12 +3,16 @@
 
 Принципы (важно для Ботхоста):
 1. Импорт config.py НИКОГДА не падает из-за отсутствующих переменных.
-2. Все значения читаются лениво через объект settings, у каждой
+2. В панель Ботхоста вводятся ТОЛЬКО секреты (токены/ключи).
+   Все не-секретные настройки зашиты в код — блок SITE_* в начале файла.
+3. Все значения читаются лениво через объект settings, у каждой
    переменной есть безопасный дефолт.
-3. Проверка окружения — отдельной функцией validate(), её вызывает
+4. Проверка окружения — отдельной функцией validate(), её вызывает
    main.py на старте и только ЛОГИРУЕТ предупреждения.
-4. Порядок запуска в main.py: config -> db -> payments -> web -> bots,
+5. Порядок запуска в main.py: config -> db -> payments -> web -> bots,
    каждый этап независим и не роняет остальные.
+
+Минимальный деплой: достаточно TONAPI_KEY + ADMIN_IDS.
 """
 
 from __future__ import annotations
@@ -28,6 +32,20 @@ except Exception:
 log = logging.getLogger("vizitka.config")
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+# ============================================================
+#  НЕ-СЕКРЕТНЫЕ настройки — живут В КОДЕ, в панель Ботхоста их
+#  вводить не нужно. Единственное, что обычно надо поменять
+#  вручную, — SITE_PUBLIC_URL: подставь адрес, который Ботхост
+#  выдаст проекту (например https://bot-123.bothost.ru), либо
+#  свой домен. ENV-переменные (если вдруг заданы) имеют приоритет
+#  и переопределяют значения ниже.
+# ============================================================
+SITE_PUBLIC_URL = "https://tvoy-bot.bothost.ru"  # ← ЗАМЕНИТЬ на реальный адрес
+SITE_CONTACT_USERNAME = "milayaqueen"            # ТГ-юзернейм для связи, без @
+SITE_PAYMENT_LINK = "https://yoomoney.ru/to/4100119149767529"  # ссылка-фолбэк на оплату
+SITE_CHANNELS = ["chat_goddes"]                  # обязательные каналы
+SITE_ADMIN_IDS = [1896036065]                    # id админов (без @)
 
 
 def _str(name: str, default: str = "") -> str:
@@ -106,13 +124,13 @@ class Settings:
     db_path: str = ""            # DB_PATH (по умолчанию game.db в корне)
     media_cache_dir: str = ""    # MEDIA_CACHE_DIR (кэш фото из Telegram)
 
-    # ---- контакты/контент (перекрывают захардкоженное в legacy) ----
-    contact_username: str = "milayaqueen"  # CONTACT_USERNAME (без @)
-    payment_link: str = "https://yoomoney.ru/to/4100119149767529"  # PAYMENT_LINK (fallback)
-    channels: list[str] = field(default_factory=lambda: ["chat_goddes"])  # CHANNELS
+    # ---- контакты/контент (не секреты — зашиты в SITE_* выше) ----
+    contact_username: str = SITE_CONTACT_USERNAME   # CONTACT_USERNAME (без @)
+    payment_link: str = SITE_PAYMENT_LINK           # PAYMENT_LINK (fallback)
+    channels: list[str] = field(default_factory=lambda: list(SITE_CHANNELS))  # CHANNELS
 
     # ---- оплата GRAM ----
-    payments_provider: str = "auto"  # PAYMENTS_PROVIDER: auto|gram|manual
+    payments_provider: str = "auto"  # PAYMENTS_PROVIDER: auto|gram|manual|tonapi
     gram_api_base_url: str = ""      # GRAM_API_BASE_URL — твой API
     gram_api_key: str = ""           # GRAM_API_KEY
     gram_merchant_id: str = ""       # GRAM_MERCHANT_ID
@@ -125,69 +143,69 @@ class Settings:
     # ---- TONAPI (для проверки платежей TON/GRAM напрямую) ----
     tonapi_key: str = ""             # TONAPI_KEY — ключ с tonapi.io
     tonapi_base_url: str = "https://tonapi.io"  # TONAPI_BASE_URL
-    ton_wallet_address: str = ""     # TON_WALLET_ADDRESS (если отличается от GRAM_WALLET_ADDRESS)
+    ton_wallet_address: str = ""     # TON_WALLET_ADDRESS
     gram_jetton_master: str = ""     # GRAM_JETTON_MASTER — адрес мастера GRAM Jetton (опционально)
-    tonapi_check_interval: int = 30  # TONAPI_CHECK_INTERVAL — интервал проверки pending заказов
+    tonapi_check_interval: int = 30  # TONAPI_CHECK_INTERVAL
 
     # ---- админ-панель (веб) ----
     admin_panel_token: str = ""  # ADMIN_PANEL_TOKEN — доступ к /admin и admin API
 
-    # ---- режимы запуска (каждый сервис независим) ----
-    run_web: bool = True          # RUN_WEB
-    run_client_bot: bool = True   # RUN_CLIENT_BOT
-    run_admin_bot: bool = True    # RUN_ADMIN_BOT
+    # ---- режимы запуска ----
+    run_web: bool = True
+    run_client_bot: bool = True
+    run_admin_bot: bool = True
 
     # ---- прочее ----
-    allow_dev_auth: bool = False  # ALLOW_DEV_AUTH=1 — вход в веб без Telegram (превью)
-    promo_sync_interval: int = 30  # PROMO_SYNC_INTERVAL — синк промокодов БД->бот, сек
-    log_level: str = "INFO"       # LOG_LEVEL
+    allow_dev_auth: bool = False
+    promo_sync_interval: int = 30
+    log_level: str = "INFO"
 
     @classmethod
     def load(cls) -> "Settings":
         db_path = _str("DB_PATH", "game.db")
         media_dir = _str("MEDIA_CACHE_DIR", "media_cache")
-        # PUBLIC_URL — пробуем авто-детект из популярных хостингов (БотХост, Render, Railway и т.д.)
+
+        # PUBLIC_URL — авто-детект из популярных хостингов
         public_url = _str_any([
             "PUBLIC_URL", "WEBAPP_URL", "APP_URL", "BOTHOST_PUBLIC_URL",
             "RENDER_EXTERNAL_URL", "RAILWAY_PUBLIC_DOMAIN", "RAILWAY_STATIC_URL",
             "HOST_URL", "BASE_URL", "EXTERNAL_URL"
-        ], "").rstrip("/")
-        # Railway дает домен без https
+        ], SITE_PUBLIC_URL).rstrip("/")
         if public_url and not public_url.startswith("http"):
             public_url = "https://" + public_url
-        # WEBAPP_URL отдельно, если не задан — = PUBLIC_URL
         webapp_url = _str("WEBAPP_URL", public_url).rstrip("/") or public_url
 
-        # Токены: ADMIN_BOT_TOKEN fallback на BOT_TOKEN, чтобы хватило одного токена
+        # Токены: ADMIN_BOT_TOKEN fallback на BOT_TOKEN
         bot_token = _str("BOT_TOKEN")
         admin_bot_token = _str("ADMIN_BOT_TOKEN") or bot_token
 
-        # ADMIN_PANEL_TOKEN — если пусто, генерим из ADMIN_IDS, чтобы работал /admin без доп. настроек
+        # ADMIN_PANEL_TOKEN — авто-генерация если пусто
         admin_panel_token = _str("ADMIN_PANEL_TOKEN")
-        admin_ids_raw = _str("ADMIN_IDS", "1896036065")
-        # если токен пуст, но есть ADMIN_IDS — сгенерим дефолтный, чтобы админка не была закрыта
+        admin_ids_raw = _str("ADMIN_IDS", "")
         if not admin_panel_token and admin_ids_raw:
-            # берем первый id как токен — просто и запоминается
             first_id = admin_ids_raw.split(",")[0].strip().replace(";", "")[:20]
             if first_id:
                 admin_panel_token = f"admin_{first_id}"
+        elif not admin_panel_token:
+            # fallback на дефолт из SITE_ADMIN_IDS
+            admin_panel_token = f"admin_{SITE_ADMIN_IDS[0]}" if SITE_ADMIN_IDS else ""
 
-        # TON кошелек — пробуем все варианты имен
+        # TON кошелек — все варианты имен
         ton_wallet = _str_any(["TON_WALLET_ADDRESS", "GRAM_WALLET_ADDRESS", "WALLET_ADDRESS", "TON_WALLET"], "")
 
         return cls(
             bot_token=bot_token,
             admin_bot_token=admin_bot_token,
-            admin_ids=_int_list("ADMIN_IDS", [1896036065]),
+            admin_ids=_int_list("ADMIN_IDS", SITE_ADMIN_IDS),
             host=_str("HOST", "0.0.0.0"),
             port=_int("PORT", 8080),
             public_url=public_url,
             webapp_url=webapp_url,
             db_path=str((PROJECT_ROOT / db_path).resolve()) if not os.path.isabs(db_path) else db_path,
             media_cache_dir=str((PROJECT_ROOT / media_dir).resolve()) if not os.path.isabs(media_dir) else media_dir,
-            contact_username=_str("CONTACT_USERNAME", "milayaqueen").lstrip("@"),
-            payment_link=_str("PAYMENT_LINK", "https://yoomoney.ru/to/4100119149767529"),
-            channels=_str_list("CHANNELS", ["chat_goddes"]),
+            contact_username=_str("CONTACT_USERNAME", SITE_CONTACT_USERNAME).lstrip("@"),
+            payment_link=_str("PAYMENT_LINK", SITE_PAYMENT_LINK),
+            channels=_str_list("CHANNELS", SITE_CHANNELS),
             payments_provider=_str("PAYMENTS_PROVIDER", "auto").lower() or "auto",
             gram_api_base_url=_str("GRAM_API_BASE_URL", "").rstrip("/"),
             gram_api_key=_str("GRAM_API_KEY", "") or _str("TONAPI_KEY", ""),
@@ -213,26 +231,20 @@ class Settings:
 
     @property
     def gram_configured(self) -> bool:
-        """True, если твой GRAM API задан и может использоваться."""
         return bool(self.gram_api_base_url and self.gram_api_key)
 
     @property
     def tonapi_configured(self) -> bool:
-        """True, если TONAPI ключ задан — для минимального деплоя достаточно только ключа.
-        Кошелек может быть задан позже через админку /admin или ENV."""
-        # Для совместимости: раньше требовали кошелек, теперь достаточно ключа
-        # poll loop сам проверит наличие кошелька в ENV или БД
+        # Достаточно ключа для минимального деплоя
         return bool(self.tonapi_key)
 
     @property
     def tonapi_wallet_configured(self) -> bool:
-        """True, если и ключ и кошелек заданы — можно сразу проверять блокчейн."""
         wallet = self.ton_wallet_address or self.gram_wallet_address
         return bool(self.tonapi_key and wallet)
 
     @property
     def payments_mode(self) -> str:
-        """Итоговый режим оплаты: 'gram' / 'tonapi' / 'manual'."""
         if self.payments_provider == "gram":
             return "gram"
         if self.payments_provider == "tonapi":
@@ -241,8 +253,6 @@ class Settings:
             return "manual"
         if self.gram_configured:
             return "gram"
-        # если есть TONAPI ключ — считаем tonapi режимом, даже если кошелек пока не задан
-        # (кошелек можно задать позже через /admin)
         if self.tonapi_configured:
             return "tonapi"
         return "manual"
@@ -250,7 +260,6 @@ class Settings:
 
 settings = Settings.load()
 
-# Совместимость со старым кодом: from config import ADMIN_IDS
 ADMIN_IDS: list[int] = settings.admin_ids
 ADMIN_ID: int | None = ADMIN_IDS[0] if ADMIN_IDS else None
 BOT_TOKEN: str = settings.bot_token
@@ -258,41 +267,32 @@ CONTACT: str = "@" + settings.contact_username
 
 
 def validate() -> list[str]:
-    """Проверка окружения. Возвращает список предупреждений (не падает).
-    Для минимального деплоя достаточно TONAPI_KEY + ADMIN_IDS — всё остальное опционально.
-    """
     warns: list[str] = []
     if settings.run_client_bot and not settings.bot_token:
         warns.append("BOT_TOKEN пуст — клиентский бот не запустится (веб продолжит работать).")
     if settings.run_admin_bot and not settings.admin_bot_token:
-        warns.append("ADMIN_BOT_TOKEN пуст — админ-бот не запустится (используй BOT_TOKEN как fallback).")
+        warns.append("ADMIN_BOT_TOKEN пуст — админ-бот не запустится (fallback на BOT_TOKEN).")
     if not settings.admin_ids:
         warns.append("ADMIN_IDS пуст — админ-функции недоступны.")
     if settings.payments_mode == "manual":
-        if settings.payments_provider == "gram" and not settings.gram_configured:
-            warns.append("PAYMENTS_PROVIDER=gram, но GRAM_API_* не заданы — оплата упадёт в ручной режим.")
-        else:
-            warns.append("Оплата в ручном режиме (подтверждение через админ-бота /admin).")
+        warns.append("Оплата в ручном режиме (подтверждение через админ-бота /admin).")
     elif settings.payments_mode == "tonapi":
         if not settings.tonapi_configured:
             warns.append("TONAPI_KEY не задан — автопроверка не работает.")
         elif not settings.tonapi_wallet_configured:
-            warns.append("TONAPI_KEY есть, но TON_WALLET_ADDRESS пуст — задай кошелек в ENV или через /admin (настройки оплаты).")
+            warns.append("TONAPI_KEY есть, но TON_WALLET_ADDRESS пуст — задай кошелек в ENV или через /admin.")
         else:
-            warns.append("TONAPI режим: оплата проверяется напрямую по блокчейну (мемо + сумма).")
+            warns.append("TONAPI режим: оплата проверяется по блокчейну (мемо + сумма).")
     if not settings.admin_panel_token:
         warns.append("ADMIN_PANEL_TOKEN пуст — веб-админка (/admin) отключена.")
-    else:
-        # если токен сгенерирован автоматически — подскажем
-        if settings.admin_panel_token.startswith("admin_"):
-            warns.append(f"ADMIN_PANEL_TOKEN сгенерирован автоматически: {settings.admin_panel_token} — используй его для /admin?admin_token=...")
+    elif settings.admin_panel_token.startswith("admin_"):
+        warns.append(f"ADMIN_PANEL_TOKEN авто: {settings.admin_panel_token} — /admin?admin_token=...")
     if not settings.public_url and settings.run_web:
-        warns.append("PUBLIC_URL пуст — авто-детект не сработал, WebApp-кнопка может не работать. Задай PUBLIC_URL если есть.")
+        warns.append("PUBLIC_URL пуст — авто-детект не сработал, WebApp-кнопка может не работать.")
     if settings.allow_dev_auth:
-        warns.append("ALLOW_DEV_AUTH=1 — включён тестовый вход в веб БЕЗ Telegram! Выключи на проде.")
-    # подсказка для минимального деплоя
+        warns.append("ALLOW_DEV_AUTH=1 — тестовый вход БЕЗ Telegram! Выключи на проде.")
     if settings.tonapi_key and settings.admin_ids:
-        warns.append("Минимальный деплой OK: достаточно TONAPI_KEY + ADMIN_IDS, остальное опционально.")
+        warns.append("Минимальный деплой OK: достаточно TONAPI_KEY + ADMIN_IDS.")
     return warns
 
 
