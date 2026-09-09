@@ -7,7 +7,7 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Jost:wght@200;300;400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600&family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#070708;
@@ -15,18 +15,19 @@
   --panel:#0e0e11;
   --line:#1c1c21;
   --line-soft:#131317;
-  --ink:#e6e0df;
-  --ink-soft:#c7c0bf;
-  --dim:#6e696a;
-  --dim-2:#545052;
-  --bone:#b8b2ad;
+  --ink:#ece6e4;
+  --ink-soft:#d2cbc9;
+  --dim:#7a7475;
+  --dim-2:#5c585a;
+  --bone:#c4bdb8;
   --blood:#8a2730;
+  --web:#c9b4ae;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-text-size-adjust:100%}
 body{
   font-family:'Jost',sans-serif;
-  font-weight:300;
+  font-weight:500;
   background:var(--bg);
   color:var(--ink);
   min-height:100vh;
@@ -37,27 +38,54 @@ body{
   background-size:auto, 44px 44px, 44px 44px;
   background-attachment:fixed;
   letter-spacing:.3px;
+  -webkit-font-smoothing:antialiased;
 }
 .serif{font-family:'Cormorant Garamond',serif}
-.container{max-width:640px;margin:0 auto;padding:28px 18px 40px}
+
+/* ---- spiderwebs ---- */
+.web-layer{
+  position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden;
+}
+.web{
+  position:absolute;
+  width:min(58vw, 460px);
+  height:min(58vw, 460px);
+  overflow:visible;
+  color:var(--web);
+}
+.web.tl{top:-18px;left:-22px;opacity:.42}
+.web.tr{top:-22px;right:-26px;transform:scaleX(-1);opacity:.36}
+.web.bl{bottom:-48px;left:-28px;transform:scaleY(-1);opacity:.28;width:min(48vw,380px);height:min(48vw,380px)}
+.web.br{bottom:-52px;right:-32px;transform:scale(-1);opacity:.26;width:min(50vw,400px);height:min(50vw,400px)}
+.web svg{width:100%;height:100%;display:block;overflow:visible}
+body::after{
+  content:"";
+  position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(ellipse at 0% 0%, rgba(138,39,48,.12), transparent 42%),
+    radial-gradient(ellipse at 100% 0%, rgba(138,39,48,.08), transparent 38%),
+    radial-gradient(ellipse at 50% 120%, rgba(0,0,0,.55), transparent 55%);
+}
+
+.container{max-width:640px;margin:0 auto;padding:28px 18px 40px;position:relative;z-index:1}
 
 /* ---- hero / name ---- */
 .hero{text-align:center;padding:44px 0 6px}
 .queen{
   font-family:'Cormorant Garamond',serif;
-  font-weight:400;
+  font-weight:700;
   font-size:clamp(46px,12vw,84px);
   line-height:.92;
   letter-spacing:.5px;
   color:var(--ink);
 }
-.queen .at{color:var(--blood);font-weight:500;padding-right:6px}
+.queen .at{color:var(--blood);font-weight:700;padding-right:6px}
 
 .sect-label{
   display:flex;align-items:center;gap:14px;
   margin:44px 0 6px;
   font-size:10px;letter-spacing:4px;text-transform:uppercase;
-  color:var(--dim);font-weight:400;
+  color:var(--dim);font-weight:600;
 }
 .sect-label::after{content:"";flex:1;height:1px;background:var(--line)}
 
@@ -72,6 +100,7 @@ body{
   padding:18px;
   margin:12px 0;
   transition:border-color .35s ease, transform .35s ease;
+  position:relative;
 }
 .card:hover{border-color:#26262c}
 .card img{
@@ -80,26 +109,28 @@ body{
   filter:grayscale(45%) contrast(1.05);
 }
 .card-body{flex:1;min-width:0}
-.cat{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--dim-2);margin-bottom:6px}
+.cat{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--dim-2);margin-bottom:6px;font-weight:600}
 .card-title{
   font-family:'Cormorant Garamond',serif;
-  font-size:20px;line-height:1.15;font-weight:500;color:var(--ink);
+  font-size:20px;line-height:1.15;font-weight:700;color:var(--ink);
 }
 .desc{
-  margin-top:7px;color:var(--ink-soft);font-size:13px;font-weight:300;line-height:1.5;
+  margin-top:7px;color:var(--ink-soft);font-size:13px;font-weight:500;line-height:1.5;
   white-space:pre-wrap;word-break:break-word;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
 }
 .price{
   margin-top:12px;display:flex;align-items:center;gap:10px;
-  font-size:15px;color:var(--ink);font-weight:400;letter-spacing:.5px;
+  font-size:15px;color:var(--ink);font-weight:600;letter-spacing:.5px;
 }
-.price .unit{color:var(--dim);font-size:10px;letter-spacing:3px;text-transform:uppercase}
+.price .unit{color:var(--dim);font-size:10px;letter-spacing:3px;text-transform:uppercase;font-weight:600}
 .buy-btn{
   margin-top:14px;
+  display:inline-block;
+  text-decoration:none;
   background:transparent;color:var(--ink);
   border:1px solid var(--dim-2);
-  font-family:'Jost',sans-serif;font-weight:300;
+  font-family:'Jost',sans-serif;font-weight:600;
   font-size:11px;letter-spacing:4px;text-transform:uppercase;
   padding:11px 26px;cursor:pointer;
   transition:all .3s ease;
@@ -108,23 +139,23 @@ body{
 .buy-btn:disabled{opacity:.35;cursor:wait}
 
 /* ---- messages ---- */
-.msg{padding:16px;margin:12px 0;font-size:13px;font-weight:300;color:var(--ink-soft);
+.msg{padding:16px;margin:12px 0;font-size:13px;font-weight:500;color:var(--ink-soft);
   border:1px solid var(--line);text-align:center;letter-spacing:1px}
 .msg.err{border-color:rgba(138,39,48,.5);color:var(--blood)}
 .loader{padding:60px 0;text-align:center;color:var(--dim);
-  font-family:'Cormorant Garamond',serif;font-style:italic;font-size:19px;letter-spacing:1px}
+  font-family:'Cormorant Garamond',serif;font-style:italic;font-weight:600;font-size:19px;letter-spacing:1px}
 
 /* ---- footer ---- */
 .footer{
   margin:64px 0 8px;text-align:center;
-  font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--dim-2);
+  font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--dim-2);font-weight:600;
 }
 .footer a{color:var(--dim-2);text-decoration:none;transition:color .3s}
 .footer a:hover{color:var(--ink-soft)}
 .footer .sep{color:var(--line);padding:0 8px}
 .admin-ghost{
   background:none;border:none;color:var(--dim-2);cursor:pointer;
-  font-family:inherit;font-size:inherit;letter-spacing:inherit;text-transform:inherit;
+  font-family:inherit;font-size:inherit;letter-spacing:inherit;text-transform:inherit;font-weight:inherit;
   padding:0;transition:color .3s;
 }
 .admin-ghost:hover{color:var(--blood)}
@@ -141,13 +172,13 @@ body{
   width:100%;max-width:420px;padding:26px 24px;position:relative;
   box-shadow:0 18px 60px rgba(0,0,0,.6);
 }
-.dialog h3{font-family:'Cormorant Garamond',serif;font-weight:500;font-size:24px;
+.dialog h3{font-family:'Cormorant Garamond',serif;font-weight:700;font-size:24px;
   color:var(--ink);text-align:center;letter-spacing:1px}
 .dialog .sub{font-size:10px;letter-spacing:3px;text-transform:uppercase;
-  color:var(--dim-2);text-align:center;margin:6px 0 18px}
+  color:var(--dim-2);text-align:center;margin:6px 0 18px;font-weight:600}
 .wallet-cta{
   width:100%;padding:14px;background:var(--blood);color:#fff;border:none;cursor:pointer;
-  font-family:'Jost',sans-serif;font-size:12px;letter-spacing:4px;text-transform:uppercase;font-weight:400;
+  font-family:'Jost',sans-serif;font-size:12px;letter-spacing:4px;text-transform:uppercase;font-weight:700;
   transition:opacity .3s;
 }
 .wallet-cta:hover{opacity:.85}
@@ -155,11 +186,58 @@ body{
 .mini-row{display:flex;gap:8px;margin-top:8px}
 .mini-btn{flex:1;padding:11px;background:transparent;color:var(--ink-soft);cursor:pointer;
   border:1px solid var(--line);font-family:'Jost',sans-serif;font-size:10px;
-  letter-spacing:2px;text-transform:uppercase;transition:all .3s;font-weight:300}
+  letter-spacing:2px;text-transform:uppercase;transition:all .3s;font-weight:600}
 .mini-btn:hover{border-color:var(--dim);color:var(--ink)}
 </style>
 </head>
 <body>
+<div class="web-layer" aria-hidden="true">
+  <svg width="0" height="0" style="position:absolute">
+    <defs>
+      <g id="webShape" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path stroke-width="1.15" d="M0 0 L560 0 M0 0 L559.5 90.1 M0 0 L528.6 170.8 M0 0 L501 268.4 M0 0 L437.2 340 M0 0 L369.1 425.6 M0 0 L269.1 482.1 M0 0 L164.2 540.7 M0 0 L68.5 553 M0 0 L0 560"/>
+        <path stroke-width=".95" d="M42 0 Q50.3 4.3 47.4 7.6 Q52.7 12.7 46.1 14.9 Q47.7 20.1 40.3 21.6 Q38 24.3 30.4 23.6 Q28.7 27 23.2 26.7 Q22.2 31.8 17.6 31.5 Q16.8 40.4 12.3 40.7 Q10.3 49.5 5.8 47 Q3.2 53.3 0 48.8"/>
+        <path stroke-width=".95" d="M94.9 0 Q105.1 8.3 91.5 14.7 Q95.1 22.5 80.8 26.1 Q82.7 35.1 72.8 39 Q73.3 47.6 64.2 49.9 Q66.5 63.5 57.6 66.4 Q57.3 82.1 44.7 80.2 Q41 97 27.8 91.6 Q21.7 101.2 11.2 90.4 Q6.1 95.3 0 85.4"/>
+        <path stroke-width=".95" d="M140.2 0 Q152.2 12 135.5 21.8 Q142 34.1 128.2 41.4 Q136.1 58.3 125.9 67.5 Q131.2 85.4 114.5 89 Q119.1 113.2 98.2 113.2 Q95.1 135 70.2 125.8 Q61.9 145.2 41.1 135.3 Q31.2 145.8 16.6 133.8 Q8.9 144.3 0 135.9"/>
+        <path stroke-width=".9" d="M197.5 0 Q215.1 17.5 201.9 32.5 Q213.3 51.4 196.4 63.4 Q210.2 89.8 188.8 101.1 Q196.9 127.5 162.9 126.7 Q167.5 158.6 133.6 154.1 Q127.2 180.5 95.1 170.3 Q82.9 195.6 57.9 190.7 Q44.2 208.8 24.7 199.6 Q13.4 221 0 208.1"/>
+        <path stroke-width=".85" d="M277.5 0 Q298.9 24.2 280.7 45.2 Q297 71.1 263.5 85.1 Q284.5 121 244.7 131.1 Q256.5 166 209.4 162.8 Q214.5 203.6 176.2 203.2 Q166.2 236.7 130.5 233.7 Q113.3 268.4 81.4 268 Q62.7 295.6 34.4 277.4 Q19.1 309.6 0 279.1"/>
+        <path stroke-width=".8" d="M357.6 0 Q387.2 30.9 351.9 56.6 Q380.2 90.9 327.2 105.7 Q359.2 153.2 308.8 165.4 Q323.2 209.8 272.4 211.8 Q274.3 260.9 233.9 269.8 Q217.4 309.6 172.4 308.9 Q150.3 354.5 104.8 345.2 Q82.3 385.4 43.1 347.6 Q24.3 392.1 0 346.6"/>
+        <path stroke-width=".7" opacity=".85" d="M435.1 0 Q485.8 39 432.7 69.6 Q477 114.5 411.8 133 Q449.1 191.9 395.7 212 Q403.3 261.8 348.7 271.1 Q343.8 326.4 293.9 338.9 Q274.1 389.3 211.8 379.5 Q188.8 444.7 127.5 420 Q102 478.8 53 427.6 Q29.6 483.6 0 436.3"/>
+        <path stroke-width=".7" opacity=".7" d="M71 14 L108 31 M52 48 L80 86 M18 72 L22 118 M168 38 L214 62 M128 112 L156 168 M42 170 L36 220"/>
+        <circle cx="91" cy="15" r="1.35" fill="currentColor" stroke="none" opacity=".75"/>
+        <circle cx="64" cy="50" r="1.15" fill="currentColor" stroke="none" opacity=".7"/>
+        <circle cx="163" cy="127" r="1.4" fill="currentColor" stroke="none" opacity=".65"/>
+        <circle cx="210" cy="34" r="1.1" fill="currentColor" stroke="none" opacity=".55"/>
+        <circle cx="81" cy="268" r="1.2" fill="currentColor" stroke="none" opacity=".5"/>
+      </g>
+    </defs>
+  </svg>
+  <div class="web tl">
+    <svg viewBox="0 0 520 520">
+      <use href="#webShape"/>
+      <!-- hanging silk + spider -->
+      <path d="M118 0 C118 22 112 44 121 68" fill="none" stroke="currentColor" stroke-width=".7" opacity=".85"/>
+      <g transform="translate(121,78)" fill="#1c1416" stroke="#8a2730" stroke-width=".35">
+        <path d="M-11-2 C-18-8 -22-4 -24 2" fill="none" stroke="currentColor" stroke-width=".7"/>
+        <path d="M-10 2 C-17 0 -22 6 -23 12" fill="none" stroke="currentColor" stroke-width=".7"/>
+        <path d="M-8 7 C-14 10 -16 16 -15 22" fill="none" stroke="currentColor" stroke-width=".7"/>
+        <path d="M-6 10 C-9 16 -8 22 -6 26" fill="none" stroke="currentColor" stroke-width=".7"/>
+        <path d="M11-2 C18-8 22-4 24 2" fill="none" stroke="currentColor" stroke-width=".7"/>
+        <path d="M10 2 C17 0 22 6 23 12" fill="none" stroke="currentColor" stroke-width=".7"/>
+        <path d="M8 7 C14 10 16 16 15 22" fill="none" stroke="currentColor" stroke-width=".7"/>
+        <path d="M6 10 C9 16 8 22 6 26" fill="none" stroke="currentColor" stroke-width=".7"/>
+        <ellipse cx="0" cy="8" rx="5.4" ry="7.2" fill="#161012" stroke="currentColor"/>
+        <ellipse cx="0" cy="-2.2" rx="3.8" ry="3.4" fill="#1a1214" stroke="currentColor"/>
+        <circle cx="-1.4" cy="-2.6" r=".7" fill="#8a2730" stroke="none"/>
+        <circle cx="1.4" cy="-2.6" r=".7" fill="#8a2730" stroke="none"/>
+      </g>
+    </svg>
+  </div>
+  <div class="web tr"><svg viewBox="0 0 520 520"><use href="#webShape"/></svg></div>
+  <div class="web bl"><svg viewBox="0 0 520 520"><use href="#webShape"/></svg></div>
+  <div class="web br"><svg viewBox="0 0 520 520"><use href="#webShape"/></svg></div>
+</div>
+
 <div class="container">
 
   <header class="hero">
@@ -171,7 +249,7 @@ body{
   <div id="products"><div class="loader">…</div></div>
 
   <footer class="footer">
-    <a id="contact_link" href="#" target="_blank">связаться</a>
+    <a id="contact_link" href="https://t.me/milayaqueen" target="_blank" rel="noopener">связаться</a>
     <span class="sep">·</span>
     <button class="admin-ghost" onclick="openAdmin()">вход</button>
   </footer>
@@ -185,7 +263,7 @@ body{
     <input type="password" id="adminPwd" placeholder="…"
            onkeydown="if(event.key==='Enter')loginAdmin()"
            style="width:100%;background:var(--bg);border:1px solid var(--line);color:var(--ink);
-                  padding:13px 12px;outline:none;font-family:'Jost',sans-serif;letter-spacing:3px;margin-bottom:14px">
+                  padding:13px 12px;outline:none;font-family:'Jost',sans-serif;font-weight:500;letter-spacing:3px;margin-bottom:14px">
     <button class="wallet-cta" onclick="loginAdmin()">войти</button>
     <div class="mini-row"><button class="mini-btn" onclick="closeOv('adminOv')">отмена</button></div>
   </div>
@@ -196,6 +274,7 @@ const tg = window.Telegram?.WebApp;
 if(tg){ try{ tg.ready(); tg.expand(); tg.setHeaderColor('#070708'); tg.setBackgroundColor('#070708'); }catch(e){} }
 
 let initData = tg?.initData || new URLSearchParams(location.search).get('initData') || '';
+const GODDESS_CHAT = 'https://t.me/milayaqueen';
 let CONFIG = { contact:'milayaqueen' };
 let PRODUCTS = {};
 
@@ -206,6 +285,22 @@ function headers(){
 }
 function haptic(t){ if(tg?.HapticFeedback){ try{ tg.HapticFeedback.impactOccurred(t||'light'); }catch(e){} } }
 
+function goddessChatUrl(){
+  const u = (CONFIG.contact || 'milayaqueen').replace(/^@/,'') || 'milayaqueen';
+  return 'https://t.me/' + u;
+}
+
+function openGoddessChat(e){
+  if(e){ e.preventDefault(); }
+  haptic('medium');
+  const url = GODDESS_CHAT;
+  if(tg && typeof tg.openTelegramLink === 'function'){
+    try{ tg.openTelegramLink(url); return false; }catch(err){}
+  }
+  window.open(url, '_blank');
+  return false;
+}
+
 /* ---------- load ---------- */
 async function loadConfig(){
   try{
@@ -215,7 +310,7 @@ async function loadConfig(){
       const n=document.getElementById('qName');
       if(n) n.textContent = j.contact_username.replace(/^@/,'');
       const l=document.getElementById('contact_link');
-      if(l){ l.href='https://t.me/'+j.contact_username; }
+      if(l){ l.href = goddessChatUrl(); }
     }
   }catch(e){}
 }
@@ -242,7 +337,7 @@ async function loadProducts(){
           <div class="card-title serif">${esc(p.title||'')}</div>
           ${p.description?`<div class="desc">${esc((p.description||'').slice(0,220))}</div>`:''}
           <div class="price"><span>${money.val}</span><span class="unit">${money.cur}</span></div>
-          <button class="buy-btn" onclick="buy(${p.id})">купить</button>
+          <a class="buy-btn" href="${GODDESS_CHAT}" target="_blank" rel="noopener" onclick="return openGoddessChat(event)">купить</a>
         </div>`;
       cont.appendChild(el);
     });
@@ -263,31 +358,6 @@ function fmt(x){
   return (f % 1 === 0) ? f.toLocaleString('ru-RU') : String(f);
 }
 
-/* ---------- покупка: открыть диалог с Богиней ---------- */
-function buy(id){
-  const p = PRODUCTS[id];
-  const title = p ? (p.title||'') : '';
-  openGoddessChat(title);
-  haptic('medium');
-}
-
-function buildGreeting(title){
-  const t = (title||'').trim();
-  if(t){
-    return 'Госпожа, хочу купить «'+t+'». Подскажите, пожалуйста, реквизиты.';
-  }
-  return 'Госпожа, хочу купить. Подскажите, пожалуйста, реквизиты.';
-}
-
-function openGoddessChat(title){
-  const msg = buildGreeting(title);
-  const share = 'https://t.me/share/url?url=&text='+encodeURIComponent(msg);
-  if(tg && typeof tg.openTelegramLink === 'function'){
-    try{ tg.openTelegramLink(share); return; }catch(e){}
-  }
-  window.open(share, '_blank');
-}
-
 /* ---------- admin ---------- */
 function openAdmin(){
   document.getElementById('adminOv').classList.add('show');
@@ -303,7 +373,7 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeOv('adminOv
 
 function esc(s){ return String(s==null?'':s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-  .replace(/\"/g,'&quot;').replace(/'/g,'&#39;'); }
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 (async()=>{
   await loadConfig();
