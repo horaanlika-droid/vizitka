@@ -3,11 +3,13 @@
 
 Принципы (важно для Ботхоста):
 1. Импорт config.py НИКОГДА не падает из-за отсутствующих переменных.
-2. Все значения читаются лениво через объект settings, у каждой
+2. В панель Ботхоста вводятся ТОЛЬКО секреты (токены/ключи).
+   Все не-секретные настройки зашиты в код — блок SITE_* в начале файла.
+3. Все значения читаются лениво через объект settings, у каждой
    переменной есть безопасный дефолт.
-3. Проверка окружения — отдельной функцией validate(), её вызывает
+4. Проверка окружения — отдельной функцией validate(), её вызывает
    main.py на старте и только ЛОГИРУЕТ предупреждения.
-4. Порядок запуска в main.py: config -> db -> payments -> web -> bots,
+5. Порядок запуска в main.py: config -> db -> payments -> web -> bots,
    каждый этап независим и не роняет остальные.
 """
 
@@ -28,6 +30,20 @@ except Exception:
 log = logging.getLogger("vizitka.config")
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+# ============================================================
+#  НЕ-СЕКРЕТНЫЕ настройки — живут В КОДЕ, в панель Ботхоста их
+#  вводить не нужно. Единственное, что обычно надо поменять
+#  вручную, — SITE_PUBLIC_URL: подставь адрес, который Ботхост
+#  выдаст проекту (например https://bot-123.bothost.ru), либо
+#  свой домен. ENV-переменные (если вдруг заданы) имеют приоритет
+#  и переопределяют значения ниже.
+# ============================================================
+SITE_PUBLIC_URL = "https://tvoy-bot.bothost.ru"  # ← ЗАМЕНИТЬ на реальный адрес
+SITE_CONTACT_USERNAME = "milayaqueen"            # ТГ-юзернейм для связи, без @
+SITE_PAYMENT_LINK = "https://yoomoney.ru/to/4100119149767529"  # ссылка-фолбэк на оплату
+SITE_CHANNELS = ["chat_goddes"]                  # обязательные каналы
+SITE_ADMIN_IDS = [1896036065]                    # id админов (без @)
 
 
 def _str(name: str, default: str = "") -> str:
@@ -97,10 +113,10 @@ class Settings:
     db_path: str = ""            # DB_PATH (по умолчанию game.db в корне)
     media_cache_dir: str = ""    # MEDIA_CACHE_DIR (кэш фото из Telegram)
 
-    # ---- контакты/контент (перекрывают захардкоженное в legacy) ----
-    contact_username: str = "milayaqueen"  # CONTACT_USERNAME (без @)
-    payment_link: str = "https://yoomoney.ru/to/4100119149767529"  # PAYMENT_LINK (fallback)
-    channels: list[str] = field(default_factory=lambda: ["chat_goddes"])  # CHANNELS
+    # ---- контакты/контент (не секреты — зашиты в SITE_* выше) ----
+    contact_username: str = SITE_CONTACT_USERNAME   # CONTACT_USERNAME (без @)
+    payment_link: str = SITE_PAYMENT_LINK           # PAYMENT_LINK (fallback)
+    channels: list[str] = field(default_factory=lambda: list(SITE_CHANNELS))  # CHANNELS
 
     # ---- оплата GRAM ----
     payments_provider: str = "auto"  # PAYMENTS_PROVIDER: auto|gram|manual
@@ -130,20 +146,20 @@ class Settings:
     def load(cls) -> "Settings":
         db_path = _str("DB_PATH", "game.db")
         media_dir = _str("MEDIA_CACHE_DIR", "media_cache")
-        public_url = _str("PUBLIC_URL", "").rstrip("/")
+        public_url = _str("PUBLIC_URL", SITE_PUBLIC_URL).rstrip("/")
         return cls(
             bot_token=_str("BOT_TOKEN"),
             admin_bot_token=_str("ADMIN_BOT_TOKEN"),
-            admin_ids=_int_list("ADMIN_IDS", [1896036065]),
+            admin_ids=_int_list("ADMIN_IDS", SITE_ADMIN_IDS),
             host=_str("HOST", "0.0.0.0"),
             port=_int("PORT", 8080),
             public_url=public_url,
             webapp_url=_str("WEBAPP_URL", public_url).rstrip("/"),
             db_path=str((PROJECT_ROOT / db_path).resolve()) if not os.path.isabs(db_path) else db_path,
             media_cache_dir=str((PROJECT_ROOT / media_dir).resolve()) if not os.path.isabs(media_dir) else media_dir,
-            contact_username=_str("CONTACT_USERNAME", "milayaqueen").lstrip("@"),
-            payment_link=_str("PAYMENT_LINK", "https://yoomoney.ru/to/4100119149767529"),
-            channels=_str_list("CHANNELS", ["chat_goddes"]),
+            contact_username=_str("CONTACT_USERNAME", SITE_CONTACT_USERNAME).lstrip("@"),
+            payment_link=_str("PAYMENT_LINK", SITE_PAYMENT_LINK),
+            channels=_str_list("CHANNELS", SITE_CHANNELS),
             payments_provider=_str("PAYMENTS_PROVIDER", "auto").lower() or "auto",
             gram_api_base_url=_str("GRAM_API_BASE_URL", "").rstrip("/"),
             gram_api_key=_str("GRAM_API_KEY", ""),

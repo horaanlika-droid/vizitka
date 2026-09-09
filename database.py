@@ -472,7 +472,7 @@ async def get_product(product_id: int) -> Optional[dict[str, Any]]:
 
 async def list_products(active_only: bool = True, category: str = "") -> list[dict[str, Any]]:
     q = "SELECT * FROM products"
-    conds, params: list[Any] = [], []
+    conds, params = [], []  # type: list[str], list[Any]
     if active_only:
         conds.append("is_active = 1")
     if category:
