@@ -145,12 +145,6 @@ body{
   color:var(--ink);text-align:center;letter-spacing:1px}
 .dialog .sub{font-size:10px;letter-spacing:3px;text-transform:uppercase;
   color:var(--dim-2);text-align:center;margin:6px 0 18px}
-.req-table{width:100%;border:1px solid var(--line);border-collapse:collapse;margin:4px 0 16px}
-.req-table td{padding:9px 12px;border-bottom:1px solid var(--line-soft);font-size:12px;vertical-align:top}
-.req-table tr:last-child td{border-bottom:none}
-.req-table td.k{width:74px;color:var(--dim-2);letter-spacing:2px;text-transform:uppercase;font-size:9px;padding-top:12px}
-.req-table td.v{color:var(--ink-soft);word-break:break-all;font-weight:300}
-.req-table td.v b{color:var(--ink);font-weight:400}
 .wallet-cta{
   width:100%;padding:14px;background:var(--blood);color:#fff;border:none;cursor:pointer;
   font-family:'Jost',sans-serif;font-size:12px;letter-spacing:4px;text-transform:uppercase;font-weight:400;
@@ -163,13 +157,6 @@ body{
   border:1px solid var(--line);font-family:'Jost',sans-serif;font-size:10px;
   letter-spacing:2px;text-transform:uppercase;transition:all .3s;font-weight:300}
 .mini-btn:hover{border-color:var(--dim);color:var(--ink)}
-.pay-note{margin-top:14px;font-size:11px;color:var(--dim);text-align:center;line-height:1.6}
-.copied-fb{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:70;
-  background:var(--panel);border:1px solid var(--line);padding:9px 18px;
-  font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--bone);
-  opacity:0;transition:opacity .3s;pointer-events:none}
-.copied-fb.show{opacity:1}
-.status-ok{margin-top:6px;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--bone);text-align:center}
 </style>
 </head>
 <body>
@@ -204,35 +191,13 @@ body{
   </div>
 </div>
 
-<!-- Payment / wallet -->
-<div class="overlay" id="payOv">
-  <div class="dialog">
-    <h3>оплата</h3>
-    <div class="sub" id="payOrder">заказ</div>
-    <table class="req-table">
-      <tr><td class="k">сумма</td><td class="v"><b id="payAmount">—</b> <span id="payCur" style="color:var(--dim-2)"></span></td></tr>
-      <tr><td class="k">мемо</td><td class="v" id="payMemo">—</td></tr>
-      <tr><td class="k">адрес</td><td class="v" id="payAddr">—</td></tr>
-    </table>
-    <button class="wallet-cta" id="walletBtn" onclick="openWalletNow()">открыть кошелёк</button>
-    <div class="status-ok" id="payStatus"></div>
-    <div class="mini-row">
-      <button class="mini-btn" onclick="copyReqs()">копировать</button>
-      <button class="mini-btn" id="chatBtn" onclick="tellGoddess()">написать богине</button>
-    </div>
-    <div class="pay-note">кошелёк откроется сам — реквизиты заполнятся. после перевода заказ подтвердится автоматически.</div>
-  </div>
-</div>
-
-<div class="copied-fb" id="copiedFb">скопировано</div>
-
 <script>
 const tg = window.Telegram?.WebApp;
 if(tg){ try{ tg.ready(); tg.expand(); tg.setHeaderColor('#070708'); tg.setBackgroundColor('#070708'); }catch(e){} }
 
 let initData = tg?.initData || new URLSearchParams(location.search).get('initData') || '';
 let CONFIG = { contact:'milayaqueen' };
-let ACTIVE = null; // {order, invoice}
+let PRODUCTS = {};
 
 function headers(){
   const h={'Content-Type':'application/json'};
@@ -266,6 +231,7 @@ async function loadProducts(){
     }
     cont.innerHTML='';
     j.products.forEach(p=>{
+      PRODUCTS[p.id]=p;
       const img=p.photo_file_id? `/api/media/${p.photo_file_id}` : (p.photo_url||'');
       const el=document.createElement('div'); el.className='card';
       const money = num(p.price_gram, p.price_rub);
@@ -276,7 +242,7 @@ async function loadProducts(){
           <div class="card-title serif">${esc(p.title||'')}</div>
           ${p.description?`<div class="desc">${esc((p.description||'').slice(0,220))}</div>`:''}
           <div class="price"><span>${money.val}</span><span class="unit">${money.cur}</span></div>
-          <button class="buy-btn" onclick="order(${p.id}, this)">купить</button>
+          <button class="buy-btn" onclick="buy(${p.id})">купить</button>
         </div>`;
       cont.appendChild(el);
     });
@@ -297,133 +263,29 @@ function fmt(x){
   return (f % 1 === 0) ? f.toLocaleString('ru-RU') : String(f);
 }
 
-/* ---------- order ---------- */
-async function order(id, btn){
-  const orig = btn?btn.textContent:'купить';
-  if(btn){ btn.disabled=true; btn.textContent='…'; }
-  try{
-    const r=await fetch('/api/orders/create', {method:'POST', headers:headers(), body:JSON.stringify({product_id:id})});
-    const j=await r.json();
-    if(!j.ok){
-      haptic('heavy');
-      toastMsg(j.error==='auth_required' ? 'открой через Telegram-бота' : 'ошибка: '+(j.error||'?'), true);
-      return;
-    }
-    showPay(j.order, j.invoice);
-    haptic('medium');
-  }catch(e){
-    toastMsg('нет связи с сервером', true);
-  }finally{
-    if(btn){ btn.disabled=false; btn.textContent=orig; }
+/* ---------- покупка: открыть диалог с Богиней ---------- */
+function buy(id){
+  const p = PRODUCTS[id];
+  const title = p ? (p.title||'') : '';
+  openGoddessChat(title);
+  haptic('medium');
+}
+
+function buildGreeting(title){
+  const t = (title||'').trim();
+  if(t){
+    return 'Госпожа, хочу купить «'+t+'». Подскажите, пожалуйста, реквизиты.';
   }
+  return 'Госпожа, хочу купить. Подскажите, пожалуйста, реквизиты.';
 }
 
-function toastMsg(t, err){
-  const s=document.getElementById('status');
-  s.innerHTML=`<div class="msg ${err?'err':''}">${esc(t)}</div>`;
-  setTimeout(()=>{ s.innerHTML=''; }, 5000);
-}
-
-/* ---------- payment / wallet ---------- */
-function showPay(order, invoice){
-  ACTIVE={order, invoice};
-  const amt = invoice.amount || order.amount_gram || order.amount_rub || '';
-  const isGramMode = String(invoice.mode||'') === 'gram';
-  document.getElementById('payOrder').textContent='заказ #'+order.id;
-  document.getElementById('payAmount').textContent= fmt(amt);
-  document.getElementById('payCur').textContent = isGramMode ? 'GRAM' : (order.amount_gram?'TON':'');
-  document.getElementById('payMemo').textContent= invoice.memo || order.pay_memo || '';
-  document.getElementById('payAddr').textContent= invoice.address || '—';
-  document.getElementById('payStatus').textContent='';
-  document.getElementById('payOv').classList.add('show');
-  // auto-open the wallet right away if we have a target
-  setTimeout(()=>{ openWalletNow(true); }, 350);
-}
-
-function buildTonLink(invoice, order){
-  const addr=(invoice.address||'').trim();
-  const memo=(invoice.memo||order.pay_memo||'').trim();
-  if(!addr) return null;
-  let link=`ton://transfer/${encodeURIComponent(addr)}`;
-  const p=[];
-  const amt = parseFloat(invoice.amount || order.amount_gram);
-  if(amt && amt>0){ p.push(`amount=${Math.round(amt*1e9)}`); }   // nanoTON
-  if(memo){ p.push('text='+encodeURIComponent(memo)); }
-  if(p.length) link+='?'+p.join('&');
-  return link;
-}
-
-function openWalletNow(auto){
-  if(!ACTIVE) return;
-  const {order, invoice}=ACTIVE;
-  const st=document.getElementById('payStatus');
-  const btn=document.getElementById('walletBtn');
-
-  // 1) провайдерская ссылка, если есть
-  if(invoice.pay_url){
-    st.textContent='открываем счёт…';
-    try{
-      const a=document.createElement('a');
-      a.href=invoice.pay_url; a.target='_blank'; a.rel='noopener';
-      document.body.appendChild(a); a.click(); a.remove();
-    }catch(e){ window.open(invoice.pay_url,'_blank'); }
-    return;
+function openGoddessChat(title){
+  const msg = buildGreeting(title);
+  const share = 'https://t.me/share/url?url=&text='+encodeURIComponent(msg);
+  if(tg && typeof tg.openTelegramLink === 'function'){
+    try{ tg.openTelegramLink(share); return; }catch(e){}
   }
-  // 2) ton:// с встроенными реквизитами
-  const link=buildTonLink(invoice, order);
-  if(link){
-    st.textContent='открываем кошелёк…';
-    if(btn) btn.disabled=true;
-    setTimeout(()=>{
-      try{
-        const a=document.createElement('a');
-        a.href=link; a.target='_blank'; a.rel='noopener';
-        document.body.appendChild(a); a.click(); a.remove();
-        if(!auto){ try{ navigator.clipboard&&navigator.clipboard.writeText(reqText()); }catch(e){} }
-        if(btn) btn.disabled=false;
-      }catch(e){
-        if(btn) btn.disabled=false;
-        window.open(link,'_blank');
-      }
-    }, 200);
-  }else{
-    st.textContent='адрес ещё не задан — напиши богине';
-  }
-}
-
-function reqText(){
-  if(!ACTIVE) return '';
-  const {order, invoice}=ACTIVE;
-  const lines=[];
-  const amt = invoice.amount || order.amount_gram || order.amount_rub;
-  if(amt) lines.push('Сумма: '+fmt(amt));
-  if(invoice.memo||order.pay_memo) lines.push('Комментарий: '+(invoice.memo||order.pay_memo));
-  if(invoice.address) lines.push('Адрес: '+invoice.address);
-  return lines.join('\n');
-}
-
-function copyReqs(){
-  const t=reqText();
-  const fb=document.getElementById('copiedFb');
-  const done=()=>{ fb.classList.add('show'); haptic('light'); setTimeout(()=>fb.classList.remove('show'),1400); };
-  if(navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(t).then(done).catch(()=>{ legacyCopy(t); done(); });
-  } else { legacyCopy(t); done(); }
-}
-function legacyCopy(text){
-  const ta=document.createElement('textarea');
-  ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
-  document.body.appendChild(ta); ta.select();
-  try{ document.execCommand('copy'); }catch(e){}
-  ta.remove();
-}
-function tellGoddess(){
-  if(!ACTIVE) return;
-  const {order}=ACTIVE;
-  const msg='заказ #'+order.id+' оплачен — проверь, пожалуйста';
-  const u='https://t.me/'+CONFIG.contact;
-  try{ tg?.openTelegramLink && tg.openTelegramLink(u) ? null : window.open(u,'_blank'); }
-  catch(e){ window.open(u,'_blank'); }
+  window.open(share, '_blank');
 }
 
 /* ---------- admin ---------- */
@@ -437,11 +299,11 @@ function loginAdmin(){
   if(!pwd) return;
   window.location.href='/admin?admin_token='+encodeURIComponent(pwd);
 }
-document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeOv('adminOv'); closeOv('payOv'); }});
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closeOv('adminOv'); }});
 
 function esc(s){ return String(s==null?'':s)
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-  .replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+  .replace(/\"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 (async()=>{
   await loadConfig();

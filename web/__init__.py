@@ -123,6 +123,7 @@ a{{color:#8ab4ff}}
 <script>
 const tg = window.Telegram?.WebApp; if(tg){{tg.ready(); tg.expand();}}
 let initData = tg?.initData || new URLSearchParams(location.search).get('initData') || '';
+const PRODUCTS={{}};
 function headers(){{ const h={{'Content-Type':'application/json'}}; if(initData) h['X-Telegram-Init-Data']=initData; return h; }}
 async function load() {{
   try{{
@@ -133,29 +134,24 @@ async function load() {{
     if(!j.products.length){{ cont.innerHTML='Товаров пока нет — добавь в админке /admin'; return; }}
     cont.innerHTML='';
     j.products.forEach(p=>{{
+      PRODUCTS[p.id]=p;
       const price = (p.price_gram? p.price_gram+' GRAM ' : '') + (p.price_rub? p.price_rub+' ₽':'');
       const img = p.photo_file_id? `/api/media/${{p.photo_file_id}}` : (p.photo_url||'');
       const el = document.createElement('div'); el.className='card';
-      el.innerHTML=`<img src="${{img}}" onerror="this.style.display='none'"><div style="flex:1"><div><b>#${{p.id}} ${{p.title}}</b> <span class="badge">${{p.category}}</span></div><div style="opacity:.8;font-size:13px;margin:4px 0">${{p.description||''}}</div><div class="price">${{price||'цена не указана'}}</div></div><button class="btn" onclick="order(${{p.id}})">Купить</button>`;
+      el.innerHTML=`<img src="${{img}}" onerror="this.style.display='none'"><div style="flex:1"><div><b>#${{p.id}} ${{p.title}}</b> <span class="badge">${{p.category}}</span></div><div style="opacity:.8;font-size:13px;margin:4px 0">${{p.description||''}}</div><div class="price">${{price||'цена не указана'}}</div></div><button class="btn" onclick="buy(${{p.id}})">Купить</button>`;
       cont.appendChild(el);
     }});
   }}catch(e){{
     document.getElementById('products').innerHTML='Ошибка загрузки: '+e+'<br>Открой /api/products напрямую для диагностики';
   }}
 }}
-async function order(id){{
-  const btn = event.target; btn.disabled=true; btn.textContent='...';
-  try{{
-    const r = await fetch('/api/orders/create', {{method:'POST', headers: headers(), body: JSON.stringify({{product_id:id}})}});
-    const j = await r.json();
-    if(!j.ok){{ alert('Ошибка: '+(j.error||'unknown')); return; }}
-    let txt = `Заказ #${{j.order.id}}\\nСумма: ${{j.order.amount_gram||j.order.amount_rub}} ${{j.invoice.mode}}\\nМемо: ${{j.order.pay_memo}}\\n`;
-    if(j.invoice.pay_url) txt+=`Ссылка: ${{j.invoice.pay_url}}\\n`;
-    if(j.invoice.address) txt+=`Адрес: ${{j.invoice.address}}\\nМемо: ${{j.invoice.memo}}\\n`;
-    if(j.invoice.note) txt+=`\\n${{j.invoice.note}}`;
-    alert(txt);
-    if(j.invoice.pay_url) window.open(j.invoice.pay_url, '_blank');
-  }}finally{{btn.disabled=false; btn.textContent='Купить';}}
+async function buy(id){{
+  const p = PRODUCTS[id];
+  const title = p ? (p.title||'') : '';
+  const msg = title ? 'Госпожа, хочу купить «'+title+'». Подскажите, пожалуйста, реквизиты.' : 'Госпожа, хочу купить. Подскажите, пожалуйста, реквизиты.';
+  const share = 'https://t.me/share/url?url=&text='+encodeURIComponent(msg);
+  if(tg && typeof tg.openTelegramLink === 'function'){{ try{{ tg.openTelegramLink(share); return; }}catch(e){{}} }}
+  window.open(share, '_blank');
 }}
 load();
 if(tg?.initDataUnsafe?.user) document.getElementById('user').textContent = '@'+(tg.initDataUnsafe.user.username||tg.initDataUnsafe.user.first_name);
