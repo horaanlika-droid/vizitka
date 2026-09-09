@@ -99,7 +99,7 @@ async def create_invoice(order_id: int, amount_gram: float | None,
         "order_id": order_id,
         "memo": memo,
         "description": description or f"Заказ #{order_id}",
-        "webhook_url": f"{settings.public_url}/api/payments/webhook}" if settings.public_url else "",
+        "webhook_url": f"{settings.public_url}/api/payments/webhook" if settings.public_url else "",
         "merchant_id": settings.gram_merchant_id,
     }
     ok, data = await _post(settings.gram_create_path, payload)

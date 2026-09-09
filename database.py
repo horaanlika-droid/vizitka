@@ -67,14 +67,16 @@ async def _connect() -> aiosqlite.Connection:
 
 async def _fetchone(query: str, params: tuple = ()) -> Optional[aiosqlite.Row]:
     async with _lock:
-        async with await _connect() as db:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(query, params) as cur:
                 return await cur.fetchone()
 
 
 async def _fetchall(query: str, params: tuple = ()) -> list[aiosqlite.Row]:
     async with _lock:
-        async with await _connect() as db:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
             async with db.execute(query, params) as cur:
                 return await cur.fetchall()
 
@@ -82,7 +84,8 @@ async def _fetchall(query: str, params: tuple = ()) -> list[aiosqlite.Row]:
 async def _exec(query: str, params: tuple = ()) -> int:
     """Выполнить INSERT/UPDATE/DELETE. Возвращает lastrowid."""
     async with _lock:
-        async with await _connect() as db:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
             cur = await db.execute(query, params)
             await db.commit()
             return cur.lastrowid or 0
@@ -90,7 +93,8 @@ async def _exec(query: str, params: tuple = ()) -> int:
 
 async def _execmany(query: str, seq: list[tuple]) -> None:
     async with _lock:
-        async with await _connect() as db:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
             await db.executemany(query, seq)
             await db.commit()
 
@@ -214,7 +218,8 @@ CREATE TABLE IF NOT EXISTS payments (
 async def ensure_schema() -> None:
     """Создать таблицы и докрутить недостающие колонки players (для старого game.db)."""
     async with _lock:
-        async with await _connect() as db:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
             await db.executescript(_SCHEMA_SQL)
             async with db.execute("PRAGMA table_info(players)") as cur:
                 existing = {row[1] for row in await cur.fetchall()}
@@ -472,7 +477,8 @@ async def get_product(product_id: int) -> Optional[dict[str, Any]]:
 
 async def list_products(active_only: bool = True, category: str = "") -> list[dict[str, Any]]:
     q = "SELECT * FROM products"
-    conds, params: list[Any] = [], []
+    conds: list[str] = []
+    params: list[Any] = []
     if active_only:
         conds.append("is_active = 1")
     if category:

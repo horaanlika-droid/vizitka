@@ -113,6 +113,13 @@ class Settings:
     gram_status_path: str = "/invoices/{id}"  # GRAM_STATUS_PATH
     gram_rub_rate: float = 0.0       # GRAM_RUB_RATE — курс для автоконвертации цен
 
+    # ---- TONAPI (для проверки платежей TON/GRAM напрямую) ----
+    tonapi_key: str = ""             # TONAPI_KEY — ключ с tonapi.io
+    tonapi_base_url: str = "https://tonapi.io"  # TONAPI_BASE_URL
+    ton_wallet_address: str = ""     # TON_WALLET_ADDRESS (если отличается от GRAM_WALLET_ADDRESS)
+    gram_jetton_master: str = ""     # GRAM_JETTON_MASTER — адрес мастера GRAM Jetton (опционально)
+    tonapi_check_interval: int = 30  # TONAPI_CHECK_INTERVAL — интервал проверки pending заказов
+
     # ---- админ-панель (веб) ----
     admin_panel_token: str = ""  # ADMIN_PANEL_TOKEN — доступ к /admin и admin API
 
@@ -146,13 +153,18 @@ class Settings:
             channels=_str_list("CHANNELS", ["chat_goddes"]),
             payments_provider=_str("PAYMENTS_PROVIDER", "auto").lower() or "auto",
             gram_api_base_url=_str("GRAM_API_BASE_URL", "").rstrip("/"),
-            gram_api_key=_str("GRAM_API_KEY", ""),
+            gram_api_key=_str("GRAM_API_KEY", "") or _str("TONAPI_KEY", ""),
             gram_merchant_id=_str("GRAM_MERCHANT_ID", ""),
-            gram_wallet_address=_str("GRAM_WALLET_ADDRESS", ""),
+            gram_wallet_address=_str("GRAM_WALLET_ADDRESS", "") or _str("TON_WALLET_ADDRESS", ""),
             gram_webhook_secret=_str("GRAM_WEBHOOK_SECRET", ""),
             gram_create_path=_str("GRAM_CREATE_PATH", "/invoices"),
             gram_status_path=_str("GRAM_STATUS_PATH", "/invoices/{id}"),
             gram_rub_rate=_float("GRAM_RUB_RATE", 0.0),
+            tonapi_key=_str("TONAPI_KEY", "") or _str("GRAM_API_KEY", ""),
+            tonapi_base_url=_str("TONAPI_BASE_URL", "https://tonapi.io").rstrip("/"),
+            ton_wallet_address=_str("TON_WALLET_ADDRESS", "") or _str("GRAM_WALLET_ADDRESS", ""),
+            gram_jetton_master=_str("GRAM_JETTON_MASTER", ""),
+            tonapi_check_interval=_int("TONAPI_CHECK_INTERVAL", 30),
             admin_panel_token=_str("ADMIN_PANEL_TOKEN", ""),
             run_web=_bool("RUN_WEB", True),
             run_client_bot=_bool("RUN_CLIENT_BOT", True),
@@ -168,13 +180,24 @@ class Settings:
         return bool(self.gram_api_base_url and self.gram_api_key)
 
     @property
+    def tonapi_configured(self) -> bool:
+        """True, если TONAPI ключ и кошелек заданы — можно проверять платежи напрямую."""
+        wallet = self.ton_wallet_address or self.gram_wallet_address
+        return bool(self.tonapi_key and wallet)
+
+    @property
     def payments_mode(self) -> str:
         """Итоговый режим оплаты: 'gram' или 'manual'."""
         if self.payments_provider == "gram":
             return "gram"
         if self.payments_provider == "manual":
             return "manual"
-        return "gram" if self.gram_configured else "manual"
+        if self.gram_configured:
+            return "gram"
+        # если есть TONAPI — тоже считаем не совсем manual, но с автопроверкой
+        if self.tonapi_configured:
+            return "tonapi"
+        return "manual"
 
 
 settings = Settings.load()
@@ -200,6 +223,11 @@ def validate() -> list[str]:
             warns.append("PAYMENTS_PROVIDER=gram, но GRAM_API_* не заданы — оплата упадёт в ручной режим.")
         else:
             warns.append("GRAM API не настроен — оплата в ручном режиме (подтверждение через админ-бота).")
+    elif settings.payments_mode == "tonapi":
+        if not settings.tonapi_configured:
+            warns.append("TONAPI_KEY или TON_WALLET_ADDRESS не заданы — автопроверка не работает.")
+        else:
+            warns.append("TONAPI режим: оплата проверяется напрямую по блокчейну (мемо + сумма).")
     if not settings.admin_panel_token:
         warns.append("ADMIN_PANEL_TOKEN пуст — веб-админка (/admin) отключена.")
     if not settings.public_url and settings.run_web:
@@ -216,8 +244,10 @@ def log_startup_summary() -> None:
     log.info("client_bot: run=%s token=%s", settings.run_client_bot, "OK" if settings.bot_token else "—")
     log.info("admin_bot: run=%s token=%s admins=%s", settings.run_admin_bot,
              "OK" if settings.admin_bot_token else "—", settings.admin_ids or "—")
-    log.info("payments: mode=%s gram_api=%s", settings.payments_mode,
-             "OK" if settings.gram_configured else "—")
+    log.info("payments: mode=%s gram_api=%s tonapi=%s wallet=%s", settings.payments_mode,
+             "OK" if settings.gram_configured else "—",
+             "OK" if settings.tonapi_configured else "—",
+             (settings.ton_wallet_address or settings.gram_wallet_address or "—")[:12] + "…")
     log.info("db: %s", settings.db_path)
     for w in validate():
         log.warning("config: %s", w)
